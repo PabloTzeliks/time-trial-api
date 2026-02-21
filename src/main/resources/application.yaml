@@ -1,0 +1,3 @@
+spring:
+  application:
+    name: Time Trial API
