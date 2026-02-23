@@ -1,3 +1,8 @@
 spring:
   application:
     name: Time Trial API
+
+time-trial:
+  secret-keys:
+    tempo-minimo-volta: 2000
+    tempo-maximo-volta: 30000
