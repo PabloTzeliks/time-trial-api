@@ -8,5 +8,6 @@ import java.util.List;
 
 public interface JpaFeedRecenteRepository extends CassandraRepository<FeedRecente, String> {
 
-
+    @Query("SELECT * FROM feed_recente WHERE agrupador = 'GERAL' LIMIT 10")
+    List<FeedRecente> buscarUltimas10();
 }
