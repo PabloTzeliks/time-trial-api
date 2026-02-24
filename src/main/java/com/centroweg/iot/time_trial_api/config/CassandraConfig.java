@@ -23,6 +23,6 @@ public class CassandraConfig extends AbstractCassandraConfiguration {
 
     @Override
     public String[] getEntityBasePackages() {
-        return new String[]{"br.com.suaempresa.corrida.core.model"};
+        return new String[]{"com.centroweg.iot.time_trial_api.core.domain;"};
     }
 }
