@@ -6,3 +6,8 @@ time-trial:
   secret-keys:
     tempo-minimo-volta: 2000
     tempo-maximo-volta: 30000
+
+mqtt:
+  broker: tcp://localhost:1883
+  clientId: time-trial-api
+  topic: rfid/sensor
