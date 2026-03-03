@@ -2,6 +2,7 @@ package com.centroweg.iot.time_trial_api.inbound.mqtt;
 
 import com.centroweg.iot.time_trial_api.config.MqttProperties;
 import com.centroweg.iot.time_trial_api.core.event.CarroPassouNoSensorEvent;
+import com.centroweg.iot.time_trial_api.inbound.dto.SensorPayloadDTO;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
@@ -25,9 +26,9 @@ public class MqttReceiver implements MqttCallback {
         try {
             mqttClient.setCallback(this);
             mqttClient.subscribe(properties.getTopic(), 0);
-            log.info("🎧 Escutando o tópico MQTT: {}", properties.getTopic());
+            log.info("Escutando o tópico MQTT: {}", properties.getTopic());
         } catch (Exception e) {
-            log.error("🚨 Erro ao se inscrever no tópico MQTT", e);
+            log.error("Erro ao se inscrever no tópico MQTT", e);
         }
     }
 
