@@ -12,4 +12,6 @@ public class MqttProperties {
     private String broker;
     private String clientId;
     private String topic;
+    private String username;
+    private String password;
 }
