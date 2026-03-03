@@ -2,6 +2,7 @@ package com.centroweg.iot.time_trial_api.inbound.mqtt;
 
 import com.centroweg.iot.time_trial_api.config.MqttProperties;
 import com.centroweg.iot.time_trial_api.core.event.CarroPassouNoSensorEvent;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -12,41 +13,46 @@ import org.springframework.stereotype.Component;
 @Slf4j
 @Component
 @RequiredArgsConstructor
-public class MqttReceiver {
+public class MqttReceiver implements MqttCallback {
 
     private final MqttClient mqttClient;
     private final MqttProperties properties;
-    private final ApplicationEventPublisher publisher;
+    private final ApplicationEventPublisher eventPublisher;
+    private final ObjectMapper objectMapper;
 
     @PostConstruct
-    public void subscribe() {
+    public void init() {
         try {
-
-            mqttClient.subscribe(properties.getTopic(), this::handleMessage);
-
-            log.info("MQTT subscribed to topic: {}", properties.getTopic());
-
-        } catch (MqttException e) {
-            log.error("Erro ao se inscrever no tópico MQTT", e);
+            mqttClient.setCallback(this);
+            mqttClient.subscribe(properties.getTopic(), 0);
+            log.info("🎧 Escutando o tópico MQTT: {}", properties.getTopic());
+        } catch (Exception e) {
+            log.error("🚨 Erro ao se inscrever no tópico MQTT", e);
         }
     }
 
-    private void handleMessage(String topic, MqttMessage message) {
+    @Override
+    public void connectionLost(Throwable cause) {
+        log.warn("Conexão MQTT perdida! O Paho vai tentar reconectar automaticamente.", cause);
+    }
+
+    @Override
+    public void messageArrived(String topic, MqttMessage message) {
+
+        String payload = new String(message.getPayload());
+        log.info("JSON recebido no tópico [{}]: {}", topic, payload);
 
         try {
+            SensorPayloadDTO dto = objectMapper.readValue(payload, SensorPayloadDTO.class);
 
-            String payload = new String(message.getPayload()).trim();
-
-            log.info("Mensagem recebida do MQTT [{}]: {}", topic, payload);
-
-            long timestamp = System.currentTimeMillis();
-
-            publisher.publishEvent(
-                    new CarroPassouNoSensorEvent(payload, timestamp)
-            );
+            eventPublisher.publishEvent(new CarroPassouNoSensorEvent(dto.rfid(), dto.timestampMs()));
 
         } catch (Exception e) {
-            log.error("Erro ao processar mensagem MQTT", e);
+            log.error("Erro ao processar o payload MQTT: {}", payload, e);
         }
+    }
+
+    @Override
+    public void deliveryComplete(IMqttDeliveryToken token) {
     }
 }
