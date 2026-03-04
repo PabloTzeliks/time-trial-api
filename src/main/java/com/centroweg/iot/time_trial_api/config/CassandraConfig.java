@@ -8,7 +8,7 @@ public class CassandraConfig extends AbstractCassandraConfiguration {
 
     @Override
     protected String getKeyspaceName() {
-        return "corrida";
+        return "time_trial";
     }
 
     @Override
