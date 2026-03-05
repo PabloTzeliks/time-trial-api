@@ -9,17 +9,14 @@ services:
       - "9042:9042"
     environment:
       - CASSANDRA_CLUSTER_NAME=TimeTrialCluster
-      # Limita a memória do Java do Cassandra para não travar seu PC/Docker
       - MAX_HEAP_SIZE=512M
       - HEAP_NEWSIZE=100M
     healthcheck:
-      # Tenta conectar no banco. Se falhar, tenta de novo.
       test: ["CMD-SHELL", "cqlsh -e 'describe cluster' || exit 1"]
       interval: 30s
       timeout: 20s
-      retries: 10 # Dá ao Cassandra até 5 minutos de tolerância para ligar
+      retries: 10
 
-  # 2. Container temporário mais inteligente
   # 2. Container temporário mais inteligente e sem quebra de linhas
   cassandra-init:
     image: cassandra:latest
@@ -40,6 +37,8 @@ services:
     container_name: time-trial-api
     ports:
       - "8080:8080"
+    env_file:
+      - .env
     depends_on:
       cassandra-init:
         condition: service_completed_successfully
