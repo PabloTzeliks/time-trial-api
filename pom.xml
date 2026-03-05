@@ -10,7 +10,7 @@
 	</parent>
 	<groupId>com.centroweg.iot</groupId>
 	<artifactId>time-trial-api</artifactId>
-	<version>0.0.1-SNAPSHOT</version>
+	<version>1.0.0-SNAPSHOT</version>
 	<name>Time Trial API</name>
 	<description>An API for managing lap times for Hot Wheels cars</description>
 	<url/>
