@@ -25,27 +25,89 @@ O sistema foi projetado para lidar com **altíssima taxa de eventos por segundo*
 
 ## 🏗️ Arquitetura Orientada a Eventos
 
-O fluxo de dados percorre cinco camadas independentes, desacopladas via mensageria assíncrona:
+O sistema é completamente orientado a eventos internos do Spring (`ApplicationEventPublisher`). Cada camada é desacoplada e processa de forma assíncrona em threads independentes do pool configurado no `AsyncConfig`.
 
 ```mermaid
 sequenceDiagram
     autonumber
     actor Carro as 🏎️ Carrinho (RFID)
     participant Edge as 📟 ESP32 (Sensor/Borda)
-    participant Broker as ☁️ HiveMQ (MQTT)
-    participant API as ⚙️ Spring Boot API
+    participant Broker as ☁️ HiveMQ Cloud (MQTT)
+    participant Receiver as 📥 MqttReceiver
+    participant Calc as ⚙️ CalculadoraDeVoltaService
+    participant Feed as 📋 FeedRecenteService
+    participant Podio as 🏆 GerenciadorPodioService
     participant DB as 🗄️ Apache Cassandra
+    participant Notif as 📡 NotificadorWebSocket
     participant Front as 💻 Front-End (Vue/React)
 
+    %% --- Camada de Entrada: Hardware → MQTT → API ---
     Carro->>Edge: Passa pelo sensor (Tag RFID lida)
-    Edge->>Broker: Publica Evento (Topic: senai/timetrial/...)
-    Note over Edge,Broker: Payload: {rfid, timestamp_ms}
-    Broker-->>API: Consome Evento (Assíncrono)
-    API->>API: Valida regras (Tempo mín/máx de volta)
-    API->>DB: Salva Histórico e Atualiza Pódio
-    Note over API,DB: Modelagem Time-Series (Alta taxa de escrita)
-    API-->>Front: Dispara atualização via WebSockets
-    Front->>Front: Atualiza Ranking em Tempo Real
+    Edge->>Broker: PUBLISH senai/timetrial/corrida/sensor
+    Note over Edge,Broker: Payload JSON: {rfid, timestamp_ms}
+    Broker-->>Receiver: Entrega mensagem (SSL/TLS)
+    Receiver->>Receiver: Desserializa → SensorPayloadDTO
+
+    %% --- Evento 1: Sensor detectado ---
+    Receiver-)Calc: 🔔 CarroPassouNoSensorEvent(rfid, timestamp_ms)
+    Note over Receiver,Calc: @Async — thread do pool "event-"
+
+    Calc->>DB: SELECT historico_carro WHERE carro_id = rfid
+    DB-->>Calc: Retorna última passagem (ou null)
+
+    alt Carro nunca passou (primeira leitura)
+        Calc->>DB: INSERT historico_carro (marco zero)
+        Note over Calc: Ignora — aguarda próxima passagem
+    else Bounce detectado (tempo < 2.000 ms)
+        Note over Calc: WARN: Ignorado — leitura duplicada/ruído
+    else DNF / Timeout (tempo > 30.000 ms)
+        Calc->>DB: INSERT historico_carro (reinicia marco zero)
+        Note over Calc: WARN: Volta reiniciada
+    else ✅ Volta válida (2.000 ms ≤ tempo ≤ 30.000 ms)
+        Calc->>DB: INSERT historico_carro (novo marco zero)
+        Note over Calc,DB: Salva novo timestamp como referência
+
+        %% --- Evento 2: Volta válida calculada (processamento paralelo) ---
+        Calc-)Feed: 🔔 VoltaValidaCalculadaEvent(rfid, tempo_volta_ms)
+        Calc-)Podio: 🔔 VoltaValidaCalculadaEvent(rfid, tempo_volta_ms)
+        Note over Feed,Podio: Ambos consomem em paralelo (@Async)
+
+        %% --- FeedRecenteService ---
+        Feed->>DB: INSERT feed_recente (TTL: 60s)
+        Note over Feed,DB: agrupador="GERAL", timestamp_ms atual
+        Feed-)Notif: 🔔 PainelPrecisaAtualizarEvent
+
+        %% --- GerenciadorPodioService ---
+        Podio->>DB: SELECT podio_global ORDER BY tempo_volta_ms ASC (top 10)
+        DB-->>Podio: Lista dos top 10
+
+        alt Carro já está no pódio E novo tempo é melhor
+            Podio->>DB: DELETE entrada antiga do podio_global
+            Podio->>DB: INSERT podio_global com novo tempo
+            Note over Podio: Atualiza recorde pessoal
+        else Pódio tem menos de 10 entradas
+            Podio->>DB: INSERT podio_global (nova entrada)
+            Note over Podio: Carro entra no pódio
+        else Tempo bate o 10º lugar
+            Podio->>DB: DELETE 10º colocado
+            Podio->>DB: INSERT podio_global (novo entrante)
+            Note over Podio: Novo carro expulsa o último
+        else Tempo não classifica
+            Note over Podio: Nenhuma alteração no pódio
+        end
+
+        Podio-)Notif: 🔔 PainelPrecisaAtualizarEvent
+    end
+
+    %% --- Evento 3: Notificação WebSocket ---
+    Note over Notif: Escuta PainelPrecisaAtualizarEvent (@Async)
+    Notif->>DB: SELECT podio_global (top 10)
+    Notif->>DB: SELECT feed_recente (últimas 10 voltas)
+    DB-->>Notif: Dados atualizados
+
+    Notif-)Front: 📤 STOMP /topic/painel → PainelSaidaDTO
+    Note over Notif,Front: {podio: [...], recentes: [...]}
+    Front->>Front: Atualiza ranking e feed em tempo real
 ```
 
 ---
@@ -121,11 +183,13 @@ A API estará disponível em: `http://localhost:8080`
 
 ### 3. WebSocket
 
-Conecte seu Front-End ao endpoint WebSocket:
+Conecte seu Front-End ao endpoint WebSocket (SockJS + STOMP):
 
 ```
-ws://localhost:8080/ws
+http://localhost:8080/ws-time-trial
 ```
+
+> O endpoint usa **SockJS**, que negocia a conexão via HTTP antes de fazer o upgrade. Clientes SockJS devem usar o prefixo `http://` (não `ws://`).
 
 Inscreva-se no destino `/topic/painel` para receber atualizações de ranking em tempo real.
 
