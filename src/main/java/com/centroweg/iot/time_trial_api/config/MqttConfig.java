@@ -2,7 +2,9 @@ package com.centroweg.iot.time_trial_api.config;
 
 import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
-import org.eclipse.paho.client.mqttv3.*;
+import org.eclipse.paho.client.mqttv3.MqttClient;
+import org.eclipse.paho.client.mqttv3.MqttConnectOptions;
+import org.eclipse.paho.client.mqttv3.MqttException;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
