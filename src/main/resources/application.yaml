@@ -1,3 +1,15 @@
 spring:
   application:
     name: Time Trial API
+
+time-trial:
+  secret-keys:
+    tempo-minimo-volta: 2000
+    tempo-maximo-volta: 30000
+
+mqtt:
+  broker: ssl://12f590a554fc4cfda1e6e2edd8381c84.s1.eu.hivemq.cloud:8883
+  client-id: spring-backend-timetrial-${random.uuid}
+  topic: senai/timetrial/corrida/sensor
+  username: ${USER_HIVEMQ}
+  password: ${PASSWORD_HIVEMQ}
