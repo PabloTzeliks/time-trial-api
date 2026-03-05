@@ -1,3 +1,20 @@
 spring:
   application:
     name: Time Trial API
+  cassandra:
+    keyspace-name: time_trial
+    contact-points: localhost
+    port: 9042
+    local-datacenter: datacenter1
+    schema-action: create_if_not_exists
+
+server:
+  port: 8080
+
+mqtt:
+  broker-url: tcp://localhost:1883
+  client-id: time-trial-api
+  username:
+  password:
+  topics:
+    lap-completed: time_trial/lap_completed
