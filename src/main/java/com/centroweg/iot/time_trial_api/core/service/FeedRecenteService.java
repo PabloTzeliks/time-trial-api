@@ -3,7 +3,6 @@ package com.centroweg.iot.time_trial_api.core.service;
 import com.centroweg.iot.time_trial_api.core.domain.FeedRecente;
 import com.centroweg.iot.time_trial_api.core.event.PainelPrecisaAtualizarEvent;
 import com.centroweg.iot.time_trial_api.core.event.VoltaValidaCalculadaEvent;
-import com.centroweg.iot.time_trial_api.core.repository.JpaFeedRecenteRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
