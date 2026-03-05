@@ -1,45 +1,37 @@
 package com.centroweg.iot.time_trial_api.outbound.websocket;
 
-import com.centroweg.iot.time_trial_api.core.domain.FeedRecente;
 import com.centroweg.iot.time_trial_api.core.event.PainelPrecisaAtualizarEvent;
-import com.centroweg.iot.time_trial_api.core.event.VoltaValidaCalculadaEvent;
+import com.centroweg.iot.time_trial_api.core.repository.JpaFeedRecenteRepository;
+import com.centroweg.iot.time_trial_api.core.repository.JpaPodioGlobalRepository;
+import com.centroweg.iot.time_trial_api.outbound.dto.PainelSaidaDTO;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.event.EventListener;
-import org.springframework.data.cassandra.core.CassandraOperations;
-import org.springframework.data.cassandra.core.InsertOptions;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
-
-import java.time.Duration;
 
 @Slf4j
 @Component
 @RequiredArgsConstructor
 public class NotificadorWebSocket {
 
-    private final CassandraOperations cassandraTemplate;
-    private final ApplicationEventPublisher eventPublisher;
+    private final SimpMessagingTemplate messagingTemplate;
+    private final JpaPodioGlobalRepository podioRepository;
+    private final JpaFeedRecenteRepository feedRepository;
 
     @Async
     @EventListener
-    public void onVoltaValida(VoltaValidaCalculadaEvent evento) {
-        String rfid = evento.rfid();
-        Long tempoVolta = evento.tempoVoltaMs();
+    public void onPainelPrecisaAtualizar(PainelPrecisaAtualizarEvent event) {
+        log.info("Preparando atualização de painel via WebSocket...");
 
-        log.info("Salvando volta no feed recente com TTL: Carro {} - {}ms", rfid, tempoVolta);
+        var top10 = podioRepository.buscarTop10();
+        var ultimasVoltas = feedRepository.buscarUltimas10();
 
-        FeedRecente feed = new FeedRecente();
-        feed.setAgrupador("GERAL");
-        feed.setTimestampMs(System.currentTimeMillis());
-        feed.setCarroId(rfid);
-        feed.setTempoVoltaMs(tempoVolta);
+        PainelSaidaDTO payload = new PainelSaidaDTO(top10, ultimasVoltas);
 
-        // Salvamos com TTL de 60 segundos
-        InsertOptions options = InsertOptions.builder().ttl(Duration.ofSeconds(60)).build();
-        cassandraTemplate.insert(feed, options);
+        messagingTemplate.convertAndSend("/topic/painel", payload);
 
-        eventPublisher.publishEvent(new PainelPrecisaAtualizarEvent());
+        log.info("Painel enviado com sucesso!");
     }
 }

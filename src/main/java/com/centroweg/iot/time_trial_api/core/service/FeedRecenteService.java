@@ -8,15 +8,19 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.event.EventListener;
+import org.springframework.data.cassandra.core.CassandraOperations;
+import org.springframework.data.cassandra.core.InsertOptions;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
+
+import java.time.Duration;
 
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class FeedRecenteService {
 
-    private final JpaFeedRecenteRepository feedRepository;
+    private final CassandraOperations cassandraTemplate;
     private final ApplicationEventPublisher eventPublisher;
 
     @Async
@@ -25,7 +29,7 @@ public class FeedRecenteService {
         String rfid = evento.rfid();
         Long tempoVolta = evento.tempoVoltaMs();
 
-        log.info("Salvando volta no feed recente: Carro {} - {}ms", rfid, tempoVolta);
+        log.info("Salvando volta no feed recente com TTL: Carro {} - {}ms", rfid, tempoVolta);
 
         FeedRecente feed = new FeedRecente();
         feed.setAgrupador("GERAL");
@@ -33,7 +37,9 @@ public class FeedRecenteService {
         feed.setCarroId(rfid);
         feed.setTempoVoltaMs(tempoVolta);
 
-        feedRepository.save(feed);
+        // A Mágica acontece aqui: Salvamos com TTL de 60 segundos
+        InsertOptions options = InsertOptions.builder().ttl(Duration.ofSeconds(60)).build();
+        cassandraTemplate.insert(feed, options);
 
         eventPublisher.publishEvent(new PainelPrecisaAtualizarEvent());
     }
