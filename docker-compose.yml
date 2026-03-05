@@ -1,47 +1,49 @@
 version: '3.8'
 
 services:
-  # 1. Banco de dados Cassandra
+  # 1. Banco de dados Cassandra Otimizado para Local
   cassandra-db:
     image: cassandra:latest
     container_name: cassandra-time-trial
     ports:
       - "9042:9042"
-    healthcheck:
-      test: ["CMD-SHELL", "cqlsh -e 'describe cluster' || exit 1"]
-      interval: 15s
-      timeout: 10s
-      retries: 5
     environment:
       - CASSANDRA_CLUSTER_NAME=TimeTrialCluster
+      # Limita a memória do Java do Cassandra para não travar seu PC/Docker
+      - MAX_HEAP_SIZE=512M
+      - HEAP_NEWSIZE=100M
+    healthcheck:
+      # Tenta conectar no banco. Se falhar, tenta de novo.
+      test: ["CMD-SHELL", "cqlsh -e 'describe cluster' || exit 1"]
+      interval: 30s
+      timeout: 20s
+      retries: 10 # Dá ao Cassandra até 5 minutos de tolerância para ligar
 
-  # 2. Container temporário para rodar o script CQL automaticamente
+  # 2. Container temporário mais inteligente
+  # 2. Container temporário mais inteligente e sem quebra de linhas
   cassandra-init:
     image: cassandra:latest
     container_name: cassandra-time-trial-init
     depends_on:
       cassandra-db:
-        condition: service_healthy # Só roda quando o banco estiver 100% pronto
+        condition: service_healthy
     command: >
-      bash -c "cqlsh cassandra-db -e \"
-      CREATE KEYSPACE IF NOT EXISTS time_trial WITH replication = {'class': 'SimpleStrategy', 'replication_factor': '1'};
-      USE time_trial;
-      CREATE TABLE IF NOT EXISTS feed_recente (agrupador text, timestamp_ms bigint, carro_id text, tempo_volta_ms bigint, PRIMARY KEY ((agrupador), timestamp_ms)) WITH CLUSTERING ORDER BY (timestamp_ms DESC);
-      CREATE TABLE IF NOT EXISTS historico_carro (carro_id text, timestamp_ms bigint, PRIMARY KEY ((carro_id), timestamp_ms)) WITH CLUSTERING ORDER BY (timestamp_ms DESC);
-      CREATE TABLE IF NOT EXISTS podio_global (agrupador text, tempo_volta_ms bigint, carro_id text, PRIMARY KEY ((agrupador), tempo_volta_ms, carro_id)) WITH CLUSTERING ORDER BY (tempo_volta_ms ASC, carro_id ASC);
-      \""
+      bash -c "
+      echo 'Cassandra está saudável! Criando tabelas...' &&
+      sleep 5 &&
+      cqlsh cassandra-db -e \"CREATE KEYSPACE IF NOT EXISTS time_trial WITH replication = {'class': 'SimpleStrategy', 'replication_factor': '1'}; USE time_trial; CREATE TABLE IF NOT EXISTS feed_recente (agrupador text, timestamp_ms bigint, carro_id text, tempo_volta_ms bigint, PRIMARY KEY ((agrupador), timestamp_ms)) WITH CLUSTERING ORDER BY (timestamp_ms DESC); CREATE TABLE IF NOT EXISTS historico_carro (carro_id text, timestamp_ms bigint, PRIMARY KEY ((carro_id), timestamp_ms)) WITH CLUSTERING ORDER BY (timestamp_ms DESC); CREATE TABLE IF NOT EXISTS podio_global (agrupador text, tempo_volta_ms bigint, carro_id text, PRIMARY KEY ((agrupador), tempo_volta_ms, carro_id)) WITH CLUSTERING ORDER BY (tempo_volta_ms ASC, carro_id ASC);\" &&
+      echo 'Tabelas criadas com sucesso!'"
 
   # 3. Sua Aplicação Spring Boot
   time-trial-api:
-    build: . # Procura por um arquivo Dockerfile na mesma pasta
+    build: .
     container_name: time-trial-api
     ports:
-      - "8080:8080" # Porta da sua API e WebSocket
+      - "8080:8080"
     depends_on:
       cassandra-init:
-        condition: service_completed_successfully # Só liga a API depois que as tabelas forem criadas
+        condition: service_completed_successfully
     environment:
-      # O Spring Boot vai usar o nome do serviço (cassandra-db) para achar o banco
       - SPRING_CASSANDRA_CONTACT_POINTS=cassandra-db
       - SPRING_CASSANDRA_PORT=9042
       - SPRING_CASSANDRA_KEYSPACE_NAME=time_trial
