@@ -47,6 +47,8 @@ public class GerenciadorPodioService {
             log.info("Carro {} entrou no pódio (vaga aberta): {}ms", rfid, novoTempo);
             inserirNovo(rfid, novoTempo);
 
+        } else {
+
             PodioGlobal decimo = top10.get(top10.size() - 1);
 
             if (novoTempo < decimo.getTempoVoltaMs()) {
