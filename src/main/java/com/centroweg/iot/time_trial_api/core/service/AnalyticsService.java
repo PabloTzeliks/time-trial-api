@@ -20,6 +20,10 @@ public class AnalyticsService {
 
     public List<HistoricoCarroResponseDTO> listaHistoricoCarro() {
 
+        var historicoCarros = historicoCarroRepository.findAll();
 
+        return historicoCarros.stream()
+                .map(historicoCarroMapper::toDto)
+                .toList();
     }
 }
