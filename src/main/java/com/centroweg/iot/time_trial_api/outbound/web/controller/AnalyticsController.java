@@ -1,4 +1,4 @@
-package com.centroweg.iot.time_trial_api.outbound.controller;
+package com.centroweg.iot.time_trial_api.outbound.web.controller;
 
 import com.centroweg.iot.time_trial_api.core.service.AnalyticsService;
 import com.centroweg.iot.time_trial_api.outbound.dto.HistoricoCarroResponseDTO;
