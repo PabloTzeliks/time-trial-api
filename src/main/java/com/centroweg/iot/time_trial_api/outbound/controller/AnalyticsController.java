@@ -21,7 +21,7 @@ public class AnalyticsController {
         this.analyticsService = analyticsService;
     }
 
-    @GetMapping
+    @GetMapping("/voltas")
     public ResponseEntity<List<HistoricoCarroResponseDTO>> getAnalytics() {
 
         return ResponseEntity.ok(analyticsService.listaHistoricoCarro());
