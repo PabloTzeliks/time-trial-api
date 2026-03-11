@@ -2,17 +2,18 @@ spring:
   application:
     name: Time Trial API
 
+  cassandra:
+    contact-points: 127.0.0.1:9042
+    local-datacenter: dc1
+    keyspace-name: time_trial
+    schema-action: none
+    request:
+      consistency: QUORUM
+
 time-trial:
   secret-keys:
     tempo-minimo-volta: 2000
     tempo-maximo-volta: 30000
-
-cassandra:
-  contact-points: cassandra-1, cassandra-2, cassandra-3
-  local-datacenter: dc1
-  keyspace-name: time_trial
-  request:
-    consistency: QUORUM
 
 mqtt:
   broker: ssl://12f590a554fc4cfda1e6e2edd8381c84.s1.eu.hivemq.cloud:8883
