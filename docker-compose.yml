@@ -9,8 +9,8 @@ services:
     environment:
       - CASSANDRA_CLUSTER_NAME=TimeTrialCluster
       - CASSANDRA_ENDPOINT_SNITCH=GossipingPropertyFileSnitch
-      - MAX_HEAP_SIZE=512M
-      - HEAP_NEWSIZE=100M
+      - MAX_HEAP_SIZE=256M
+      - HEAP_NEWSIZE=50M
     healthcheck:
       test: ["CMD-SHELL", "cqlsh -e 'describe cluster' || exit 1"]
       interval: 30s
@@ -26,8 +26,8 @@ services:
       - CASSANDRA_CLUSTER_NAME=TimeTrialCluster
       - CASSANDRA_SEEDS=cassandra-1
       - CASSANDRA_ENDPOINT_SNITCH=GossipingPropertyFileSnitch
-      - MAX_HEAP_SIZE=512M
-      - HEAP_NEWSIZE=100M
+      - MAX_HEAP_SIZE=256M
+      - HEAP_NEWSIZE=50M
     depends_on:
       cassandra-1:
         condition: service_healthy
@@ -41,8 +41,8 @@ services:
       - CASSANDRA_CLUSTER_NAME=TimeTrialCluster
       - CASSANDRA_SEEDS=cassandra-1
       - CASSANDRA_ENDPOINT_SNITCH=GossipingPropertyFileSnitch
-      - MAX_HEAP_SIZE=512M
-      - HEAP_NEWSIZE=100M
+      - MAX_HEAP_SIZE=256M
+      - HEAP_NEWSIZE=50M
     depends_on:
       cassandra-1:
         condition: service_healthy
