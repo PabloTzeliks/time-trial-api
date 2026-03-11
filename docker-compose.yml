@@ -1,13 +1,11 @@
 version: '3.8'
 
 services:
-  # Nó 1
   cassandra-1:
     image: cassandra:latest
     container_name: cassandra-node-1
     ports:
       - "9042:9042"
-      - "7070:7070"
     environment:
       - CASSANDRA_CLUSTER_NAME=TimeTrialCluster
       - CASSANDRA_ENDPOINT_SNITCH=GossipingPropertyFileSnitch
@@ -18,8 +16,9 @@ services:
       interval: 30s
       timeout: 20s
       retries: 10
+    networks:
+      - timetrial-net
 
-  # Nó 2
   cassandra-2:
     image: cassandra:latest
     container_name: cassandra-node-2
@@ -32,8 +31,9 @@ services:
     depends_on:
       cassandra-1:
         condition: service_healthy
+    networks:
+      - timetrial-net
 
-  # Nó 3
   cassandra-3:
     image: cassandra:latest
     container_name: cassandra-node-3
@@ -46,20 +46,28 @@ services:
     depends_on:
       cassandra-1:
         condition: service_healthy
+    networks:
+      - timetrial-net
 
-  # 2. Criação das Tabelas
   cassandra-init:
     image: cassandra:latest
     container_name: cassandra-time-trial-init
     depends_on:
       cassandra-1:
         condition: service_healthy
+    networks:
+      - timetrial-net
     command: >
       bash -c "
       echo 'Aguardando cluster estabilizar...' &&
-      sleep 40 &&
-      cqlsh cassandra-1 -e \"CREATE KEYSPACE IF NOT EXISTS time_trial WITH replication = {'class': 'SimpleStrategy', 'replication_factor': '3'}; USE time_trial; CREATE TABLE IF NOT EXISTS feed_recente (agrupador text, timestamp_ms bigint, carro_id text, tempo_volta_ms bigint, PRIMARY KEY ((agrupador), timestamp_ms)) WITH CLUSTERING ORDER BY (timestamp_ms DESC); CREATE TABLE IF NOT EXISTS historico_carro (carro_id text, timestamp_ms bigint, PRIMARY KEY ((carro_id), timestamp_ms)) WITH CLUSTERING ORDER BY (timestamp_ms DESC); CREATE TABLE IF NOT EXISTS podio_global (agrupador text, tempo_volta_ms bigint, carro_id text, PRIMARY KEY ((agrupador), tempo_volta_ms, carro_id)) WITH CLUSTERING ORDER BY (tempo_volta_ms ASC, carro_id ASC);\" &&
-      echo 'Tabelas criadas!'"
+      for i in {1..30}; do
+        if [ \"$$(nodetool -h cassandra-1 status | grep -c '^UN ')\" -ge 3 ]; then
+          echo 'Cluster pronto!'; break;
+        fi
+        echo 'Esperando nós sincronizarem...'; sleep 10;
+      done &&
+      cqlsh cassandra-1 -e \"CREATE KEYSPACE IF NOT EXISTS time_trial WITH replication = {'class': 'NetworkTopologyStrategy', 'dc1': '3'}; USE time_trial; CREATE TABLE IF NOT EXISTS feed_recente (agrupador text, timestamp_ms bigint, carro_id text, tempo_volta_ms bigint, PRIMARY KEY ((agrupador), timestamp_ms)) WITH CLUSTERING ORDER BY (timestamp_ms DESC); CREATE TABLE IF NOT EXISTS historico_carro (carro_id text, timestamp_ms bigint, PRIMARY KEY ((carro_id), timestamp_ms)) WITH CLUSTERING ORDER BY (timestamp_ms DESC); CREATE TABLE IF NOT EXISTS podio_global (agrupador text, tempo_volta_ms bigint, carro_id text, PRIMARY KEY ((agrupador), tempo_volta_ms, carro_id)) WITH CLUSTERING ORDER BY (tempo_volta_ms ASC, carro_id ASC);\" &&
+      echo 'Tabelas criadas com sucesso!'"
 
   prometheus:
     image: prom/prometheus:latest
@@ -69,6 +77,8 @@ services:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml
     ports:
       - "9090:9090"
+    networks:
+      - timetrial-net
 
   grafana:
     image: grafana/grafana:latest
@@ -77,11 +87,12 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
     depends_on:
       - prometheus
+    networks:
+      - timetrial-net
 
-  # 3. Aplicação Spring Boot
   time-trial-api:
     build: .
     container_name: time-trial-api
@@ -96,4 +107,10 @@ services:
       - SPRING_CASSANDRA_CONTACT_POINTS=cassandra-1,cassandra-2,cassandra-3
       - SPRING_CASSANDRA_PORT=9042
       - SPRING_CASSANDRA_KEYSPACE_NAME=time_trial
-      - SPRING_CASSANDRA_LOCAL_DATACENTER=datacenter1
+      - SPRING_CASSANDRA_LOCAL_DATACENTER=dc1
+    networks:
+      - timetrial-net
+
+networks:
+  timetrial-net:
+    driver: bridge
