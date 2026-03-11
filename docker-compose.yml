@@ -9,8 +9,10 @@ services:
     environment:
       - CASSANDRA_CLUSTER_NAME=TimeTrialCluster
       - CASSANDRA_ENDPOINT_SNITCH=GossipingPropertyFileSnitch
-      - MAX_HEAP_SIZE=256M
-      - HEAP_NEWSIZE=50M
+      - CASSANDRA_DC=dc1
+      - CASSANDRA_RACK=rack1
+      - MAX_HEAP_SIZE=384M
+      - HEAP_NEWSIZE=128M
     healthcheck:
       test: ["CMD-SHELL", "cqlsh -e 'describe cluster' || exit 1"]
       interval: 30s
@@ -26,8 +28,15 @@ services:
       - CASSANDRA_CLUSTER_NAME=TimeTrialCluster
       - CASSANDRA_SEEDS=cassandra-1
       - CASSANDRA_ENDPOINT_SNITCH=GossipingPropertyFileSnitch
-      - MAX_HEAP_SIZE=256M
-      - HEAP_NEWSIZE=50M
+      - CASSANDRA_DC=dc1
+      - CASSANDRA_RACK=rack1
+      - MAX_HEAP_SIZE=384M
+      - HEAP_NEWSIZE=128M
+    healthcheck:
+      test: ["CMD-SHELL", "cqlsh -e 'describe cluster' || exit 1"]
+      interval: 30s
+      timeout: 20s
+      retries: 10
     depends_on:
       cassandra-1:
         condition: service_healthy
@@ -41,10 +50,12 @@ services:
       - CASSANDRA_CLUSTER_NAME=TimeTrialCluster
       - CASSANDRA_SEEDS=cassandra-1
       - CASSANDRA_ENDPOINT_SNITCH=GossipingPropertyFileSnitch
-      - MAX_HEAP_SIZE=256M
-      - HEAP_NEWSIZE=50M
+      - CASSANDRA_DC=dc1
+      - CASSANDRA_RACK=rack1
+      - MAX_HEAP_SIZE=384M
+      - HEAP_NEWSIZE=128M
     depends_on:
-      cassandra-1:
+      cassandra-2:
         condition: service_healthy
     networks:
       - timetrial-net
@@ -59,15 +70,20 @@ services:
       - timetrial-net
     command: >
       bash -c "
-      echo 'Aguardando cluster estabilizar...' &&
-      for i in {1..30}; do
-        if [ \"$$(nodetool -h cassandra-1 status | grep -c '^UN ')\" -ge 3 ]; then
-          echo 'Cluster pronto!'; break;
-        fi
-        echo 'Esperando nós sincronizarem...'; sleep 10;
-      done &&
-      cqlsh cassandra-1 -e \"CREATE KEYSPACE IF NOT EXISTS time_trial WITH replication = {'class': 'NetworkTopologyStrategy', 'dc1': '3'}; USE time_trial; CREATE TABLE IF NOT EXISTS feed_recente (agrupador text, timestamp_ms bigint, carro_id text, tempo_volta_ms bigint, PRIMARY KEY ((agrupador), timestamp_ms)) WITH CLUSTERING ORDER BY (timestamp_ms DESC); CREATE TABLE IF NOT EXISTS historico_carro (carro_id text, timestamp_ms bigint, PRIMARY KEY ((carro_id), timestamp_ms)) WITH CLUSTERING ORDER BY (timestamp_ms DESC); CREATE TABLE IF NOT EXISTS podio_global (agrupador text, tempo_volta_ms bigint, carro_id text, PRIMARY KEY ((agrupador), tempo_volta_ms, carro_id)) WITH CLUSTERING ORDER BY (tempo_volta_ms ASC, carro_id ASC);\" &&
-      echo 'Tabelas criadas com sucesso!'"
+      echo 'Verificando cluster via rede CQL...';
+      READY=0;
+      for i in {1..60}; do
+        PEERS=\$$(cqlsh cassandra-1 -e 'SELECT rack FROM system.peers' | grep -c 'rack1' || echo 0);
+        if [ \"\$$PEERS\" -ge 2 ]; then
+          echo 'Cluster 100% sincronizado!'; READY=1; break;
+        fi;
+        echo \"Aguardando nós (tentativa \$$i/60)...\"; sleep 10;
+      done;
+      if [ \$$READY -eq 0 ]; then
+        echo 'Falha: Cluster nao subiu a tempo.'; exit 1;
+      fi;
+      echo 'Criando tabelas...';
+      cqlsh cassandra-1 -e \"CREATE KEYSPACE IF NOT EXISTS time_trial WITH replication = {'class': 'NetworkTopologyStrategy', 'dc1': '3'}; USE time_trial; CREATE TABLE IF NOT EXISTS feed_recente (agrupador text, timestamp_ms bigint, carro_id text, tempo_volta_ms bigint, PRIMARY KEY ((agrupador), timestamp_ms)) WITH CLUSTERING ORDER BY (timestamp_ms DESC); CREATE TABLE IF NOT EXISTS historico_carro (carro_id text, timestamp_ms bigint, PRIMARY KEY ((carro_id), timestamp_ms)) WITH CLUSTERING ORDER BY (timestamp_ms DESC); CREATE TABLE IF NOT EXISTS podio_global (agrupador text, tempo_volta_ms bigint, carro_id text, PRIMARY KEY ((agrupador), tempo_volta_ms, carro_id)) WITH CLUSTERING ORDER BY (tempo_volta_ms ASC, carro_id ASC);\" && echo 'Tabelas criadas com sucesso!'"
 
   prometheus:
     image: prom/prometheus:latest
