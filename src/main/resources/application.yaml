@@ -8,6 +8,8 @@ spring:
     local-datacenter: dc1
     keyspace-name: time_trial
     schema-action: none
+    request:
+      consistency: QUORUM
 
 time-trial:
   secret-keys:
