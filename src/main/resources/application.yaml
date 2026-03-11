@@ -3,12 +3,11 @@ spring:
     name: Time Trial API
 
   cassandra:
-    contact-points: 127.0.0.1:9042
+    contact-points: 127.0.0.1
+    port: 9042
     local-datacenter: dc1
     keyspace-name: time_trial
     schema-action: none
-    request:
-      consistency: QUORUM
 
 time-trial:
   secret-keys:
@@ -29,4 +28,4 @@ management:
         include: "prometheus,health,info"
   endpoint:
     health:
-      show-details: always
+      show-details: never
