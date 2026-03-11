@@ -9,7 +9,7 @@ spring:
     keyspace-name: time_trial
     schema-action: none
     request:
-      consistency: QUORUM
+      consistency: ONE
 
 time-trial:
   secret-keys:

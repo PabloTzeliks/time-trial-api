@@ -21,45 +21,6 @@ services:
     networks:
       - timetrial-net
 
-  #cassandra-2:
-  #  image: cassandra:latest
-  #  container_name: cassandra-node-2
-  #  environment:
-  #    - CASSANDRA_CLUSTER_NAME=TimeTrialCluster
-  #    - CASSANDRA_SEEDS=cassandra-1
-  #    - CASSANDRA_ENDPOINT_SNITCH=GossipingPropertyFileSnitch
-  #    - CASSANDRA_DC=dc1
-  #    - CASSANDRA_RACK=rack1
-  #    - MAX_HEAP_SIZE=384M
-  #    - HEAP_NEWSIZE=128M
-  #  healthcheck:
-  #    test: ["CMD-SHELL", "cqlsh -e 'describe cluster' || exit 1"]
-  #    interval: 30s
-  #    timeout: 20s
-  #    retries: 10
-  #  depends_on:
-  #    cassandra-1:
-  #      condition: service_healthy
-  #  networks:
-  #    - timetrial-net
-
-  #cassandra-3:
-    # image: cassandra:latest
-    # container_name: cassandra-node-3
-      # environment:
-      #  - CASSANDRA_CLUSTER_NAME=TimeTrialCluster
-      #  - CASSANDRA_SEEDS=cassandra-1
-      #  - CASSANDRA_ENDPOINT_SNITCH=GossipingPropertyFileSnitch
-      #  - CASSANDRA_DC=dc1
-      #  - CASSANDRA_RACK=rack1
-      #  - MAX_HEAP_SIZE=384M
-      #  - HEAP_NEWSIZE=128M
-      #depends_on:
-      # cassandra-2:
-      #  condition: service_healthy
-    #networks:
-    #  - timetrial-net
-
   cassandra-init:
     image: cassandra:latest
     container_name: cassandra-time-trial-init
@@ -68,22 +29,19 @@ services:
         condition: service_healthy
     networks:
       - timetrial-net
-    command: >
-      bash -c "
-      echo 'Verificando cluster via rede CQL...';
-      READY=0;
-      for i in {1..60}; do
-        PEERS=\$$(cqlsh cassandra-1 -e 'SELECT rack FROM system.peers' | grep -c 'rack1' || echo 0);
-        if [ \"\$$PEERS\" -ge 2 ]; then
-          echo 'Cluster 100% sincronizado!'; READY=1; break;
-        fi;
-        echo \"Aguardando nós (tentativa \$$i/60)...\"; sleep 10;
-      done;
-      if [ \$$READY -eq 0 ]; then
-        echo 'Falha: Cluster nao subiu a tempo.'; exit 1;
-      fi;
-      echo 'Criando tabelas...';
-      cqlsh cassandra-1 -e \"CREATE KEYSPACE IF NOT EXISTS time_trial WITH replication = {'class': 'NetworkTopologyStrategy', 'dc1': '3'}; USE time_trial; CREATE TABLE IF NOT EXISTS feed_recente (agrupador text, timestamp_ms bigint, carro_id text, tempo_volta_ms bigint, PRIMARY KEY ((agrupador), timestamp_ms)) WITH CLUSTERING ORDER BY (timestamp_ms DESC); CREATE TABLE IF NOT EXISTS historico_carro (carro_id text, timestamp_ms bigint, PRIMARY KEY ((carro_id), timestamp_ms)) WITH CLUSTERING ORDER BY (timestamp_ms DESC); CREATE TABLE IF NOT EXISTS podio_global (agrupador text, tempo_volta_ms bigint, carro_id text, PRIMARY KEY ((agrupador), tempo_volta_ms, carro_id)) WITH CLUSTERING ORDER BY (tempo_volta_ms ASC, carro_id ASC);\" && echo 'Tabelas criadas com sucesso!'"
+    command:
+      - /bin/bash
+      - -c
+      - |
+        echo "Aguardando Cassandra..."
+        until cqlsh cassandra-1 -e "describe cluster" > /dev/null 2>&1; do
+          sleep 5
+        done
+        echo "Criando tabelas..."
+        cqlsh cassandra-1 -e "CREATE KEYSPACE IF NOT EXISTS time_trial WITH replication = {'class': 'SimpleStrategy', 'replication_factor': '1'};"
+        cqlsh cassandra-1 -e "USE time_trial; CREATE TABLE IF NOT EXISTS feed_recente (agrupador text, timestamp_ms bigint, carro_id text, tempo_volta_ms bigint, PRIMARY KEY ((agrupador), timestamp_ms)) WITH CLUSTERING ORDER BY (timestamp_ms DESC);"
+        cqlsh cassandra-1 -e "USE time_trial; CREATE TABLE IF NOT EXISTS historico_carro (carro_id text, timestamp_ms bigint, PRIMARY KEY ((carro_id), timestamp_ms)) WITH CLUSTERING ORDER BY (timestamp_ms DESC);"
+        cqlsh cassandra-1 -e "USE time_trial; CREATE TABLE IF NOT EXISTS podio_global (agrupador text, tempo_volta_ms bigint, carro_id text, PRIMARY KEY ((agrupador), tempo_volta_ms, carro_id)) WITH CLUSTERING ORDER BY (tempo_volta_ms ASC, carro_id ASC);"
 
   prometheus:
     image: prom/prometheus:latest
@@ -103,7 +61,7 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=$${GRAFANA_ADMIN_PASSWORD:-admin}
     depends_on:
       - prometheus
     networks:
@@ -120,7 +78,7 @@ services:
       cassandra-init:
         condition: service_completed_successfully
     environment:
-      - SPRING_CASSANDRA_CONTACT_POINTS=cassandra-1 # ,cassandra-2,cassandra-3
+      - SPRING_CASSANDRA_CONTACT_POINTS=cassandra-1
       - SPRING_CASSANDRA_PORT=9042
       - SPRING_CASSANDRA_KEYSPACE_NAME=time_trial
       - SPRING_CASSANDRA_LOCAL_DATACENTER=dc1
