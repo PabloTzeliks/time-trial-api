@@ -18,10 +18,10 @@ public class CassandraConfig extends AbstractCassandraConfiguration {
     @Value("${spring.cassandra.port:9042}")
     private int port;
 
-    @Value("${spring.cassandra.local-datacenter:dc1}") // <- Já deixei o default seguro como dc1
+    @Value("${spring.cassandra.local-datacenter:dc1}")
     private String localDatacenter;
 
-    @Value("${spring.cassandra.request.consistency:QUORUM}") // <- Lendo a consistência
+    @Value("${spring.cassandra.request.consistency:QUORUM}")
     private String consistencyLevel;
 
     @Override
