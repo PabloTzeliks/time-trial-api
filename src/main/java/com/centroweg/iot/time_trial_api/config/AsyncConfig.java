@@ -8,7 +8,6 @@ import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 
 import java.util.concurrent.Executor;
-import java.util.concurrent.ThreadPoolExecutor;
 
 @Slf4j
 @Configuration
@@ -17,7 +16,7 @@ public class AsyncConfig {
 
     @Primary
     @Bean(name = "eventExecutor")
-    public Executor taskExecutor() {
+    public Executor eventExecutor() {
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
         executor.setCorePoolSize(4);
         executor.setMaxPoolSize(8);
@@ -25,6 +24,20 @@ public class AsyncConfig {
         executor.setThreadNamePrefix("event-");
         executor.setRejectedExecutionHandler((r, e) ->
                 log.error("Evento descartado — pool saturado. Aumente QueueCapacity ou MaxPoolSize.")
+        );
+        executor.initialize();
+        return executor;
+    }
+
+    @Bean(name = "notifierExecutor")
+    public Executor notifierExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(1);
+        executor.setMaxPoolSize(1);
+        executor.setQueueCapacity(500);
+        executor.setThreadNamePrefix("notifier-");
+        executor.setRejectedExecutionHandler((r, e) ->
+                log.error("Notificação descartada — fila do notifier saturada.")
         );
         executor.initialize();
         return executor;
