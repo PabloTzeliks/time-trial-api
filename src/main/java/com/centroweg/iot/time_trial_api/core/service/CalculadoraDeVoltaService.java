@@ -1,9 +1,8 @@
 package com.centroweg.iot.time_trial_api.core.service;
 
-import com.centroweg.iot.time_trial_api.core.domain.HistoricoCarro;
 import com.centroweg.iot.time_trial_api.core.event.CarroPassouNoSensorEvent;
 import com.centroweg.iot.time_trial_api.core.event.VoltaValidaCalculadaEvent;
-import com.centroweg.iot.time_trial_api.core.repository.JpaHistoricoCarroRepository;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.ApplicationEventPublisher;
@@ -11,66 +10,73 @@ import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicReference;
+
 @Slf4j
 @Service
+@RequiredArgsConstructor
 public class CalculadoraDeVoltaService {
 
-    private final JpaHistoricoCarroRepository historicoRepository;
     private final ApplicationEventPublisher eventPublisher;
+    private final SessaoAtualHolder sessaoAtualHolder;
 
-    @Value(value = "${time-trial.secret-keys.tempo-minimo-volta}")
+    @Value("${time-trial.secret-keys.tempo-minimo-volta}")
     private Long tempoMinimoVolta;
 
-    @Value(value = "${time-trial.secret-keys.tempo-maximo-volta}")
+    @Value("${time-trial.secret-keys.tempo-maximo-volta}")
     private Long tempoMaximoVolta;
 
-    public CalculadoraDeVoltaService(JpaHistoricoCarroRepository historicoRepository, ApplicationEventPublisher eventPublisher) {
-        this.historicoRepository = historicoRepository;
-        this.eventPublisher = eventPublisher;
-    }
+    private final ConcurrentHashMap<String, Long> marcoZero = new ConcurrentHashMap<>();
 
-    @Async
+    @Async("eventExecutor")
     @EventListener
     public void onCarroPassou(CarroPassouNoSensorEvent evento) {
-
         String rfid = evento.rfid();
-        Long timestampAtual = evento.timestampMs();
+        Long tsAtual = evento.timestampMs();
 
-        HistoricoCarro ultimaPassagem = historicoRepository.findFirstByCarroId(rfid);
+        AtomicReference<Decisao> decisao = new AtomicReference<>(Decisao.PRIMEIRA_PASSAGEM);
+        AtomicReference<Long> duracaoCalculada = new AtomicReference<>(0L);
 
-        if (ultimaPassagem == null) {
-            log.info("Novo carro na pista: {}", rfid);
-            salvarMarcoZero(rfid, timestampAtual);
-            return;
+        marcoZero.compute(rfid, (key, prev) -> {
+            if (prev == null) {
+                return tsAtual;
+            }
+
+            long duracao = tsAtual - prev;
+
+            if (duracao < tempoMinimoVolta) {
+                decisao.set(Decisao.BOUNCE);
+                return prev;
+            }
+
+            if (duracao > tempoMaximoVolta) {
+                decisao.set(Decisao.DNF);
+                return tsAtual;
+            }
+
+            decisao.set(Decisao.VOLTA_VALIDA);
+            duracaoCalculada.set(duracao);
+            return tsAtual;
+        });
+
+        switch (decisao.get()) {
+            case PRIMEIRA_PASSAGEM -> log.info("Novo carro na pista: {}", rfid);
+            case BOUNCE -> log.warn("Bounce ignorado — carro {} em {}ms (abaixo do mínimo)", rfid, duracaoCalculada.get());
+            case DNF -> log.warn("DNF — carro {} excedeu tempo máximo, marco reiniciado", rfid);
+            case VOLTA_VALIDA -> {
+                log.info("Volta válida — carro {} em {}ms", rfid, duracaoCalculada.get());
+                eventPublisher.publishEvent(new VoltaValidaCalculadaEvent(
+                        sessaoAtualHolder.getSessaoId(),
+                        rfid,
+                        duracaoCalculada.get(),
+                        tsAtual
+                ));
+            }
         }
-
-        Long tempoDaVolta = timestampAtual - ultimaPassagem.getTimestampMs();
-
-        if (tempoDaVolta < tempoMinimoVolta) {
-
-            log.warn("Bounce/Ignorado - Carro {} - {}ms", rfid, tempoDaVolta);
-            return;
-        }
-
-        if (tempoDaVolta > tempoMaximoVolta) {
-
-            log.warn("DNF/Timeout - Carro {} - Reiniciando volta.", rfid);
-            salvarMarcoZero(rfid, timestampAtual);
-            return;
-        }
-
-        log.info("Volta Concluída! Carro {} em {}ms", rfid, tempoDaVolta);
-        salvarMarcoZero(rfid, timestampAtual);
-
-        eventPublisher.publishEvent(new VoltaValidaCalculadaEvent(rfid, tempoDaVolta));
     }
 
-    private void salvarMarcoZero(String rfid, Long timestamp) {
-
-        HistoricoCarro hc = new HistoricoCarro();
-        hc.setCarroId(rfid);
-        hc.setTimestampMs(timestamp);
-
-        historicoRepository.save(hc);
+    private enum Decisao {
+        PRIMEIRA_PASSAGEM, BOUNCE, DNF, VOLTA_VALIDA
     }
 }
