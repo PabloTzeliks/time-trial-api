@@ -83,7 +83,7 @@ services:
         echo 'Falha: Cluster nao subiu a tempo.'; exit 1;
       fi;
       echo 'Criando tabelas...';
-      cqlsh cassandra-1 -e \"CREATE KEYSPACE IF NOT EXISTS time_trial WITH replication = {'class': 'NetworkTopologyStrategy', 'dc1': '3'}; USE time_trial; CREATE TABLE IF NOT EXISTS feed_recente (agrupador text, timestamp_ms bigint, carro_id text, tempo_volta_ms bigint, PRIMARY KEY ((agrupador), timestamp_ms)) WITH CLUSTERING ORDER BY (timestamp_ms DESC); CREATE TABLE IF NOT EXISTS historico_carro (carro_id text, timestamp_ms bigint, PRIMARY KEY ((carro_id), timestamp_ms)) WITH CLUSTERING ORDER BY (timestamp_ms DESC); CREATE TABLE IF NOT EXISTS podio_global (agrupador text, tempo_volta_ms bigint, carro_id text, PRIMARY KEY ((agrupador), tempo_volta_ms, carro_id)) WITH CLUSTERING ORDER BY (tempo_volta_ms ASC, carro_id ASC);\" && echo 'Tabelas criadas com sucesso!'"
+      cqlsh cassandra-1 -e \"CREATE KEYSPACE IF NOT EXISTS time_trial WITH replication = {'class': 'NetworkTopologyStrategy', 'dc1': '3'}; USE time_trial; CREATE TABLE IF NOT EXISTS volta (sessao_id text, carro_id text, ts bigint, duracao_ms bigint, PRIMARY KEY ((sessao_id), carro_id, ts)) WITH CLUSTERING ORDER BY (carro_id ASC, ts DESC);\" && echo 'Tabelas criadas com sucesso!'"
 
   prometheus:
     image: prom/prometheus:latest
