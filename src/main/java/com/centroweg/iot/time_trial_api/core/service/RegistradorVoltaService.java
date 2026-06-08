@@ -17,6 +17,7 @@ import org.springframework.stereotype.Service;
 public class RegistradorVoltaService {
 
     private final VoltaRepository voltaRepository;
+    private final PainelStateCache painelStateCache;
     private final ApplicationEventPublisher eventPublisher;
 
     @Async("eventExecutor")
@@ -29,6 +30,8 @@ public class RegistradorVoltaService {
         volta.setDuracaoMs(evento.duracaoMs());
 
         voltaRepository.save(volta);
+
+        painelStateCache.registrar(evento.sessaoId(), evento.rfid(), evento.duracaoMs(), evento.ts());
 
         log.info("Volta persistida — sessão {} carro {} em {}ms", evento.sessaoId(), evento.rfid(), evento.duracaoMs());
 

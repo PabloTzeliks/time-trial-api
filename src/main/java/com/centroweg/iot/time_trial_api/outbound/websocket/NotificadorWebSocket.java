@@ -17,7 +17,7 @@ public class NotificadorWebSocket {
     private final SimpMessagingTemplate messagingTemplate;
     private final PainelService painelService;
 
-    @Async("eventExecutor")
+    @Async("notifierExecutor")
     @EventListener
     public void onPainelPrecisaAtualizar(PainelPrecisaAtualizarEvent event) {
         var payload = painelService.derivar();
