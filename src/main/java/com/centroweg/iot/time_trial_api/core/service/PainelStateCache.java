@@ -1,9 +1,6 @@
 package com.centroweg.iot.time_trial_api.core.service;
 
 import com.centroweg.iot.time_trial_api.core.event.SessaoIniciadaEvent;
-import com.centroweg.iot.time_trial_api.outbound.dto.LeaderboardEntryDTO;
-import com.centroweg.iot.time_trial_api.outbound.dto.PainelSaidaDTO;
-import com.centroweg.iot.time_trial_api.outbound.dto.VoltaFeedDTO;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.event.EventListener;

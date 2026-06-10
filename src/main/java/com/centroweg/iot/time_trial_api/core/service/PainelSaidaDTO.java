@@ -1,4 +1,4 @@
-package com.centroweg.iot.time_trial_api.outbound.dto;
+package com.centroweg.iot.time_trial_api.core.service;
 
 import java.util.List;
 
