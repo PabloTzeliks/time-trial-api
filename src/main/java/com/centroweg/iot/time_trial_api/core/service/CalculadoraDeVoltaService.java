@@ -5,7 +5,6 @@ import com.centroweg.iot.time_trial_api.core.event.SessaoIniciadaEvent;
 import com.centroweg.iot.time_trial_api.core.event.VoltaValidaCalculadaEvent;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Async;
@@ -22,12 +21,6 @@ public class CalculadoraDeVoltaService {
     private final ApplicationEventPublisher eventPublisher;
     private final SessaoAtualHolder sessaoAtualHolder;
 
-    @Value("${time-trial.secret-keys.tempo-minimo-volta}")
-    private Long tempoMinimoVolta;
-
-    @Value("${time-trial.secret-keys.tempo-maximo-volta}")
-    private Long tempoMaximoVolta;
-
     private final ConcurrentHashMap<String, MarcoZero> marcoZero = new ConcurrentHashMap<>();
 
     @Async("eventExecutor")
@@ -35,7 +28,11 @@ public class CalculadoraDeVoltaService {
     public void onCarroPassou(CarroPassouNoSensorEvent evento) {
         String rfid = evento.rfid();
         Long tsAtual = evento.timestampMs();
-        String sessaoAtual = sessaoAtualHolder.getSessaoId();
+
+        SessaoAtualHolder.EstadoSessao sessao = sessaoAtualHolder.snapshot();
+        String sessaoAtual = sessao.sessaoId();
+        long tempoMinimoVolta = sessao.tempoMinimoMs();
+        long tempoMaximoVolta = sessao.tempoMaximoMs();
 
         AtomicReference<Decisao> decisao = new AtomicReference<>(Decisao.PRIMEIRA_PASSAGEM);
         AtomicReference<Long> duracaoCalculada = new AtomicReference<>(0L);
