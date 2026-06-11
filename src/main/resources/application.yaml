@@ -28,11 +28,18 @@ management:
   endpoints:
     web:
       exposure:
-        include: "*"
+        include: "health, info, prometheus"
   endpoint:
     health:
       show-details: never
   metrics:
+    tags:
+      application: ${spring.application.name}
     enable:
       logback: true
       all: true
+    distribution:
+      percentiles-histogram:
+        http:
+          server:
+            requests: true
