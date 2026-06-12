@@ -1,5 +1,8 @@
 package com.centroweg.iot.time_trial_api.core.service;
 
+import com.centroweg.iot.time_trial_api.core.api.LeaderboardEntryDTO;
+import com.centroweg.iot.time_trial_api.core.api.PainelSaidaDTO;
+import com.centroweg.iot.time_trial_api.core.api.VoltaFeedDTO;
 import com.centroweg.iot.time_trial_api.core.event.SessaoIniciadaEvent;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -24,6 +27,9 @@ public class PainelStateCache {
 
     private final SessaoAtualHolder sessaoAtualHolder;
 
+    private volatile String sessaoIdAtual = "";
+    private volatile String nomePistaAtual = null;
+
     private final ConcurrentHashMap<String, Long> melhoresTempos = new ConcurrentHashMap<>();
     private final PriorityQueue<VoltaFeedDTO> feedHeap = new PriorityQueue<>(Comparator.comparingLong(VoltaFeedDTO::ts));
     private final Object feedLock = new Object();
@@ -34,9 +40,10 @@ public class PainelStateCache {
             return;
         }
 
-        melhoresTempos.merge(carroId, duracaoMs, Long::min);
+        Long melhor = melhoresTempos.merge(carroId, duracaoMs, Long::min);
+        boolean isPessoalRecord = melhor.equals(duracaoMs);
 
-        VoltaFeedDTO entrada = new VoltaFeedDTO(carroId, duracaoMs, ts);
+        VoltaFeedDTO entrada = new VoltaFeedDTO(carroId, duracaoMs, ts, isPessoalRecord);
         synchronized (feedLock) {
             if (feedHeap.size() < FEED_CAPACITY) {
                 feedHeap.offer(entrada);
@@ -61,15 +68,17 @@ public class PainelStateCache {
         }
         feed.sort(Comparator.comparingLong(VoltaFeedDTO::ts).reversed());
 
-        return new PainelSaidaDTO(leaderboard, feed);
+        return new PainelSaidaDTO(sessaoIdAtual, nomePistaAtual, leaderboard, feed);
     }
 
     @EventListener
     public void onSessaoIniciada(SessaoIniciadaEvent event) {
+        this.sessaoIdAtual = event.sessaoId();
+        this.nomePistaAtual = event.nomePista();
         melhoresTempos.clear();
         synchronized (feedLock) {
             feedHeap.clear();
         }
-        log.info("PainelStateCache limpo após início da sessão {}", event.sessaoId());
+        log.info("PainelStateCache limpo após início da sessão {} (pista: {})", event.sessaoId(), event.nomePista());
     }
 }

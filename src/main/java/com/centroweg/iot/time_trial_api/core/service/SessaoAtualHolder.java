@@ -61,20 +61,20 @@ public class SessaoAtualHolder {
         long minimo = pista.getTempoMinimoMs() != null ? pista.getTempoMinimoMs() : tempoMinimoPadrao;
         long maximo = pista.getTempoMaximoMs() != null ? pista.getTempoMaximoMs() : tempoMaximoPadrao;
 
-        return aplicar(new EstadoSessao(UUID.randomUUID().toString(), pista.getId(), minimo, maximo));
+        return aplicar(new EstadoSessao(UUID.randomUUID().toString(), pista.getId(), pista.getNome(), minimo, maximo));
     }
 
     private String aplicar(EstadoSessao nova) {
         estado.set(nova);
         log.info("Nova sessão iniciada: {} (pista: {}, tempos: [{}ms, {}ms])",
                 nova.sessaoId(), nova.pistaId(), nova.tempoMinimoMs(), nova.tempoMaximoMs());
-        eventPublisher.publishEvent(new SessaoIniciadaEvent(nova.sessaoId()));
+        eventPublisher.publishEvent(new SessaoIniciadaEvent(nova.sessaoId(), nova.pistaId(), nova.nomePista()));
         return nova.sessaoId();
     }
 
     private EstadoSessao sessaoComPadrao() {
-        return new EstadoSessao(UUID.randomUUID().toString(), null, tempoMinimoPadrao, tempoMaximoPadrao);
+        return new EstadoSessao(UUID.randomUUID().toString(), null, null, tempoMinimoPadrao, tempoMaximoPadrao);
     }
 
-    public record EstadoSessao(String sessaoId, String pistaId, long tempoMinimoMs, long tempoMaximoMs) { }
+    public record EstadoSessao(String sessaoId, String pistaId, String nomePista, long tempoMinimoMs, long tempoMaximoMs) { }
 }
