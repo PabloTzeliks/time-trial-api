@@ -1,5 +1,6 @@
 package com.centroweg.iot.time_trial_api.outbound.websocket;
 
+import com.centroweg.iot.time_trial_api.core.api.PainelSaidaDTO;
 import com.centroweg.iot.time_trial_api.core.event.PainelPrecisaAtualizarEvent;
 import com.centroweg.iot.time_trial_api.core.service.PainelService;
 import lombok.RequiredArgsConstructor;
@@ -20,9 +21,9 @@ public class NotificadorWebSocket {
     @Async("notifierExecutor")
     @EventListener
     public void onPainelPrecisaAtualizar(PainelPrecisaAtualizarEvent event) {
-        var payload = painelService.derivar();
+        PainelSaidaDTO payload = painelService.derivar();
         messagingTemplate.convertAndSend("/topic/painel", payload);
-        log.info("Painel enviado — leaderboard {} entradas, feed {} entradas",
-                payload.leaderboard().size(), payload.recentes().size());
+        log.info("Painel enviado — sessão {} pista '{}' leaderboard {} entradas, feed {} entradas",
+                payload.sessaoId(), payload.nomePista(), payload.leaderboard().size(), payload.recentes().size());
     }
 }
