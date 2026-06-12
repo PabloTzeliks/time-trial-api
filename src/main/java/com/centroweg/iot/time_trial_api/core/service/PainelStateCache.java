@@ -34,10 +34,10 @@ public class PainelStateCache {
     private final PriorityQueue<VoltaFeedDTO> feedHeap = new PriorityQueue<>(Comparator.comparingLong(VoltaFeedDTO::ts));
     private final Object feedLock = new Object();
 
-    public void registrar(String sessaoId, String carroId, Long duracaoMs, Long ts) {
+    public boolean registrar(String sessaoId, String carroId, Long duracaoMs, Long ts) {
         if (!sessaoId.equals(sessaoAtualHolder.getSessaoId())) {
             log.warn("Registro descartado — pertence à sessão {} (atual: {})", sessaoId, sessaoAtualHolder.getSessaoId());
-            return;
+            return false;
         }
 
         Long melhor = melhoresTempos.merge(carroId, duracaoMs, Long::min);
@@ -52,6 +52,7 @@ public class PainelStateCache {
                 feedHeap.offer(entrada);
             }
         }
+        return true;
     }
 
     public PainelSaidaDTO snapshot() {

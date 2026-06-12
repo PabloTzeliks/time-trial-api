@@ -31,10 +31,12 @@ public class RegistradorVoltaService {
 
         voltaRepository.save(volta);
 
-        painelStateCache.registrar(evento.sessaoId(), evento.rfid(), evento.duracaoMs(), evento.ts());
+        boolean aceito = painelStateCache.registrar(evento.sessaoId(), evento.rfid(), evento.duracaoMs(), evento.ts());
 
         log.info("Volta persistida — sessão {} carro {} em {}ms", evento.sessaoId(), evento.rfid(), evento.duracaoMs());
 
-        eventPublisher.publishEvent(new PainelPrecisaAtualizarEvent());
+        if (aceito) {
+            eventPublisher.publishEvent(new PainelPrecisaAtualizarEvent());
+        }
     }
 }
