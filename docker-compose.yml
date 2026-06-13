@@ -4,6 +4,8 @@ services:
   cassandra-1:
     image: cassandra:latest
     container_name: cassandra-node-1
+    volumes:
+      - cassandra-1-data:/var/lib/cassandra
     ports:
       - "9042:9042"
     environment:
@@ -24,6 +26,8 @@ services:
   cassandra-2:
     image: cassandra:latest
     container_name: cassandra-node-2
+    volumes:
+      - cassandra-2-data:/var/lib/cassandra
     environment:
       - CASSANDRA_CLUSTER_NAME=TimeTrialCluster
       - CASSANDRA_SEEDS=cassandra-1
@@ -46,6 +50,8 @@ services:
   cassandra-3:
     image: cassandra:latest
     container_name: cassandra-node-3
+    volumes:
+      - cassandra-3-data:/var/lib/cassandra
     environment:
       - CASSANDRA_CLUSTER_NAME=TimeTrialCluster
       - CASSANDRA_SEEDS=cassandra-1
@@ -91,10 +97,16 @@ services:
     restart: unless-stopped
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=15d'
     ports:
       - "9090:9090"
     networks:
       - timetrial-net
+
 
   grafana:
     image: grafana/grafana:latest
@@ -108,6 +120,10 @@ services:
       - prometheus
     networks:
       - timetrial-net
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
+      - ./grafana/dashboards:/etc/dashboards
 
   time-trial-api:
     build: .
@@ -130,3 +146,10 @@ services:
 networks:
   timetrial-net:
     driver: bridge
+
+volumes:
+  cassandra-1-data:
+  cassandra-2-data:
+  cassandra-3-data:
+  prometheus-data:
+  grafana-data:
