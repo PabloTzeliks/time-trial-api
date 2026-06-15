@@ -1,39 +1,68 @@
 # 🏎️ Time Trial API
 
-> Sistema de cronometragem de alta precisão para corridas de carrinhos com sensores RFID — processamento de eventos em tempo real, arquitetura distribuída orientada a eventos, cluster de banco de dados com consenso quórum e módulo de Data Science integrado.
+> Sistema de cronometragem de alta precisão para corridas de carrinhos com sensores RFID — processamento de eventos em tempo real, arquitetura orientada a eventos, log de voltas *append-only* e derivação de ranking em memória, livre de race conditions por design.
 
 ---
 
 ## Badges
 
 ![Java](https://img.shields.io/badge/Java-21-orange?style=for-the-badge&logo=openjdk&logoColor=white)
-![Spring Boot](https://img.shields.io/badge/Spring_Boot-3.x-6DB33F?style=for-the-badge&logo=spring-boot&logoColor=white)
+![Spring Boot](https://img.shields.io/badge/Spring_Boot-3.5-6DB33F?style=for-the-badge&logo=spring-boot&logoColor=white)
+![Spring Modulith](https://img.shields.io/badge/Spring_Modulith-1.3-6DB33F?style=for-the-badge&logo=spring&logoColor=white)
 ![Apache Cassandra](https://img.shields.io/badge/Apache_Cassandra-1287B1?style=for-the-badge&logo=apache-cassandra&logoColor=white)
 ![MQTT](https://img.shields.io/badge/MQTT-HiveMQ-660066?style=for-the-badge&logo=mqtt&logoColor=white)
 ![WebSocket](https://img.shields.io/badge/WebSockets-Tempo_Real-010101?style=for-the-badge&logo=socket.io&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?style=for-the-badge&logo=docker&logoColor=white)
+![AWS](https://img.shields.io/badge/AWS-ECS_+_Keyspaces-FF9900?style=for-the-badge&logo=amazon-aws&logoColor=white)
 ![Prometheus](https://img.shields.io/badge/Prometheus-E6522C?style=for-the-badge&logo=prometheus&logoColor=white)
 ![Grafana](https://img.shields.io/badge/Grafana-F46800?style=for-the-badge&logo=grafana&logoColor=white)
-![Python](https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white)
-![Streamlit](https://img.shields.io/badge/Streamlit-FF4B4B?style=for-the-badge&logo=streamlit&logoColor=white)
 
 ---
 
 ## 📖 Sobre o Projeto
 
-A **Time Trial API** é o núcleo de um sistema de cronometragem de nível Enterprise inspirado no universo Hot Wheels. Sensores RFID instalados na pista leem as tags dos carrinhos ao passarem pelos pontos de controle, e cada leitura dispara uma cadeia completa de eventos: do hardware físico até o ranking exibido em tempo real no navegador.
+A **Time Trial API** é o núcleo de um sistema de cronometragem inspirado no universo Hot Wheels. Sensores RFID instalados na pista leem as tags dos carrinhos ao passarem pelo ponto de controle, e cada leitura dispara uma cadeia completa de eventos: do hardware físico até o ranking exibido em tempo real no navegador.
 
-O sistema foi projetado para lidar com **altíssima taxa de eventos por segundo** (alto throughput IoT), garantindo que nenhuma leitura seja perdida e que a atualização do placar chegue ao Front-End em milissegundos. A arquitetura evoluiu de uma API monolítica para um **sistema distribuído de alta volumetria**, com cluster de banco de dados com replicação e consenso quórum, observabilidade full-stack via Prometheus e Grafana, e um módulo dedicado de Data Science para análise de clustering e detecção de anomalias.
+O sistema é projetado para lidar com **alta taxa de eventos por segundo** (alto throughput IoT), garantindo que nenhuma leitura seja perdida e que a atualização do placar chegue ao Front-End em milissegundos.
+
+A versão atual é fruto de uma refatoração profunda cujo princípio central é:
+
+> **Eliminar race conditions por design, e não por travas.** Em vez de guardar estado mutável compartilhado no banco (ler → modificar → regravar), o sistema grava apenas **fatos imutáveis** (`Volta`) num log *append-only* e **deriva** o leaderboard e o feed em memória. Sem estado mutável compartilhado, classes inteiras de bugs de concorrência simplesmente deixam de existir.
+
+---
+
+## 🧩 Conceitos Centrais
+
+O domínio gira em torno de três conceitos. Entender os três é entender o sistema inteiro.
+
+| Conceito | O que é | Por que existe |
+|---|---|---|
+| **Pista** (`pista`) | Configuração de uma pista física: `nome`, `tempoMinimoMs`, `tempoMaximoMs`. | Os limiares que definem o que é *bounce*, *DNF* e *volta válida* viraram **dado configurável por pista** — não mais constantes no código. |
+| **Volta** (`volta`) | Fato imutável: `(sessaoId, carroId, ts, duracaoMs)`. | É o **log append-only** e a **fonte da verdade durável**. Nunca se atualiza nem deleta — só se acrescenta. Permite replay e reconstrução do estado. |
+| **Sessão** | Uma corrida, identificada por um `UUID`, mantida em memória. Toda volta carrega o `sessaoId` dela. | Isola corridas entre si. Iniciar uma nova sessão "zera" o painel sem apagar o histórico do banco. |
+
+> ⚠️ **Escopo atual:** o sistema roda **uma sessão/pista ativa por vez** (modelo single-session). O modelo de dados (`Volta` particionada por `sessao_id`) já suporta várias corridas coexistindo no banco; rodar **múltiplas pistas simultaneamente** é evolução planejada — veja [Roadmap](#-roadmap--evolução).
 
 ---
 
 ## 🏗️ Arquitetura do Sistema
 
-O sistema é construído sobre três pilares de engenharia de alta performance:
+O sistema se apoia em quatro pilares:
 
-1. **Event-Driven Core** — processamento totalmente assíncrono via `ApplicationEventPublisher` do Spring, com handlers paralelos em pool de threads dedicado.
-2. **Distributed Storage** — cluster ring de 3 nós Apache Cassandra com replicação `NetworkTopologyStrategy` e consistência `QUORUM` para todas as operações críticas.
-3. **Bimodal Output** — saída de dados em dois modos: *push* em tempo real via WebSocket e *pull* em lote via REST para o módulo de Data Science.
+1. **Event-Driven Core** — processamento assíncrono via `ApplicationEventPublisher` do Spring, com handlers em pools de threads dedicados.
+2. **Append-only + Derivação em memória** — o Cassandra guarda só fatos (`Volta`); leaderboard e feed são calculados em memória pelo `PainelStateCache`.
+3. **Modularidade verificada** — fronteiras de módulo garantidas em tempo de teste com **Spring Modulith**.
+4. **Tempo real** — saída *push* via WebSocket (STOMP) para o Front-End.
+
+### Camadas (Spring Modulith)
+
+```
+inbound  →  core  →  outbound
+```
+
+- **`inbound`** — entrada do mundo externo (`MqttReceiver`, `SensorPayloadDTO`).
+- **`core`** — o coração: `domain`, `event`, `repository`, `service` e a API pública (`core.api`). As fronteiras são declaradas via `@NamedInterface` e verificadas pelo `ModularityVerificationTest`.
+- **`outbound`** — saída para o mundo (`NotificadorWebSocket`, controllers REST, DTOs de saída).
 
 ---
 
@@ -41,7 +70,7 @@ O sistema é construído sobre três pilares de engenharia de alta performance:
 
 ```mermaid
 flowchart LR
-    subgraph BORDA["📟 Camada de Borda (Edge)"]
+    subgraph BORDA["📟 Borda (Edge)"]
         ESP["ESP32 + Sensor RFID"]
     end
 
@@ -51,184 +80,140 @@ flowchart LR
 
     subgraph BACKEND["⚙️ Spring Boot API (Event-Driven Core)"]
         direction TB
-        RECV["MqttReceiver\n@Async"]
-        CALC["CalculadoraDeVoltaService\n@EventListener @Async"]
-        FEED["FeedRecenteService\n@EventListener @Async"]
-        PODIO["GerenciadorPodioService\n@EventListener @Async"]
-        NOTIF["NotificadorWebSocket\n@EventListener @Async"]
-        ANALYTICS["AnalyticsController\nGET /api/analytics/voltas"]
+        RECV["MqttReceiver"]
+        CALC["CalculadoraDeVoltaService\nmarcoZero em memória (atômico)"]
+        REG["RegistradorVoltaService\núnico escritor da Volta"]
+        CACHE["PainelStateCache\nleaderboard + feed em memória"]
+        NOTIF["NotificadorWebSocket\nexecutor de 1 thread (FIFO)"]
+        SESS["SessaoAtualHolder\nAtomicReference<EstadoSessao>"]
         ACTUATOR["Spring Actuator\n/actuator/prometheus"]
     end
 
-    subgraph STORAGE["🗄️ Cluster Apache Cassandra (Ring — 3 Nós)"]
+    subgraph STORAGE["🗄️ Apache Cassandra (Ring — 3 Nós)"]
         direction LR
-        C1["cassandra-node-1\n(Seed)"]
-        C2["cassandra-node-2"]
-        C3["cassandra-node-3"]
-        C1 <-->|"Gossip Protocol"| C2
-        C2 <-->|"Gossip Protocol"| C3
-        C1 <-->|"Gossip Protocol"| C3
+        C1["node-1 (Seed)"]
+        C2["node-2"]
+        C3["node-3"]
+        C1 <-->|"Gossip"| C2
+        C2 <-->|"Gossip"| C3
+        C1 <-->|"Gossip"| C3
     end
 
     subgraph OBS["📊 Observabilidade"]
-        PROM["Prometheus\n:9090\n(scrape 5s)"]
-        GRAF["Grafana\n:3000\n(Dashboard)"]
+        PROM["Prometheus\n:9090 (scrape 5s)"]
+        GRAF["Grafana\n:3000"]
     end
 
     subgraph FRONTEND["💻 Front-End"]
-        REACT["React / Vue\nSTOMP /topic/painel"]
+        WEB["Time Trial UI\nSTOMP /topic/painel"]
     end
 
-    subgraph DATASCIENCE["🔬 Data Science (Python)"]
-        STREAMLIT["Streamlit Dashboard\nPandas · SciPy\nScikit-Learn (K-Means)"]
-    end
-
-    ESP -->|"PUBLISH JSON\n{rfid, timestamp_ms}"| MQTT
+    ESP -->|"PUBLISH {rfid, timestamp_ms}"| MQTT
     MQTT -->|"Entrega SSL/TLS"| RECV
     RECV -->|"CarroPassouNoSensorEvent"| CALC
-    CALC -->|"VoltaValidaCalculadaEvent"| FEED
-    CALC -->|"VoltaValidaCalculadaEvent"| PODIO
-    FEED -->|"PainelPrecisaAtualizarEvent"| NOTIF
-    PODIO -->|"PainelPrecisaAtualizarEvent"| NOTIF
+    CALC -->|"VoltaValidaCalculadaEvent"| REG
+    REG -->|"INSERT (append-only) W QUORUM"| STORAGE
+    REG -->|"atualiza in-memory"| CACHE
+    REG -->|"PainelPrecisaAtualizarEvent"| NOTIF
+    NOTIF -->|"lê snapshot O(1)"| CACHE
+    NOTIF -->|"STOMP Push PainelSaidaDTO"| WEB
 
-    CALC -->|"R/W QUORUM"| STORAGE
-    FEED -->|"W QUORUM"| STORAGE
-    PODIO -->|"R/W QUORUM"| STORAGE
-    NOTIF -->|"R QUORUM"| STORAGE
-    ANALYTICS -->|"R (batch)"| STORAGE
+    SESS -->|"SessaoIniciadaEvent (purga estado)"| CALC
+    SESS -->|"SessaoIniciadaEvent (purga estado)"| CACHE
+    WEB -->|"POST /api/sessoes/iniciar"| SESS
+    WEB -->|"GET/POST /api/pistas"| STORAGE
 
-    NOTIF -->|"STOMP Push\nPainelSaidaDTO"| REACT
-    ANALYTICS -->|"GET HTTP\nJSON batch"| STREAMLIT
-
-    ACTUATOR -->|"scrape /actuator/prometheus"| PROM
+    ACTUATOR -->|"scrape"| PROM
     PROM -->|"datasource"| GRAF
 ```
 
 ---
 
-### Diagrama 2 — Fluxo de Sequência Event-Driven (com QUORUM e Data Science)
+### Diagrama 2 — Fluxo de Sequência (de uma volta válida)
 
 ```mermaid
 sequenceDiagram
     autonumber
     actor Carro as 🏎️ Carrinho (RFID)
-    participant Edge as 📟 ESP32 (Sensor/Borda)
-    participant Broker as ☁️ HiveMQ Cloud (MQTT)
+    participant Edge as 📟 ESP32
+    participant Broker as ☁️ HiveMQ (MQTT)
     participant Receiver as 📥 MqttReceiver
     participant Calc as ⚙️ CalculadoraDeVoltaService
-    participant Feed as 📋 FeedRecenteService
-    participant Podio as 🏆 GerenciadorPodioService
-    participant C1 as 🗄️ Cassandra Node-1 (Seed)
-    participant C2 as 🗄️ Cassandra Node-2
-    participant C3 as 🗄️ Cassandra Node-3
+    participant Reg as 💾 RegistradorVoltaService
+    participant DB as 🗄️ Cassandra (QUORUM)
+    participant Cache as 🧠 PainelStateCache
     participant Notif as 📡 NotificadorWebSocket
-    participant Front as 💻 Front-End (Vue/React)
-    participant Analytics as 📊 AnalyticsController
-    participant DS as 🔬 Dashboard (Streamlit/Python)
+    participant Front as 💻 Front-End
 
-    %% --- Camada de Entrada: Hardware → MQTT → API ---
-    Carro->>Edge: Passa pelo sensor (Tag RFID lida)
+    Carro->>Edge: Passa pelo sensor (tag RFID lida)
     Edge->>Broker: PUBLISH senai/timetrial/corrida/sensor
-    Note over Edge,Broker: Payload JSON: {rfid, timestamp_ms}
-    Broker-->>Receiver: Entrega mensagem (SSL/TLS)
+    Note over Edge,Broker: {rfid, timestamp_ms}
+    Broker-->>Receiver: Entrega (SSL/TLS)
     Receiver->>Receiver: Desserializa → SensorPayloadDTO
+    Receiver-)Calc: 🔔 CarroPassouNoSensorEvent
 
-    %% --- Evento 1: Sensor detectado ---
-    Receiver-)Calc: 🔔 CarroPassouNoSensorEvent(rfid, timestamp_ms)
-    Note over Receiver,Calc: @Async — thread do pool "event-"
+    Note over Calc: marcoZero.compute(rfid, ...) — ATÔMICO por carro
+    Note over Calc: lê marco anterior → calcula duração → decide → grava novo marco
 
-    Note over Calc,C3: Consistência QUORUM — aguarda ACK de 2/3 nós
-    Calc->>C1: SELECT historico_carro WHERE carro_id = rfid
-    C1-->>C2: Replica read repair (Gossip)
-    C2-->>Calc: ACK Quórum (2/3 nós confirmaram)
-    C1-->>Calc: Retorna última passagem (ou null)
-
-    alt Carro nunca passou (primeira leitura)
-        Calc->>C1: INSERT historico_carro (marco zero) — QUORUM
-        C1-->>C2: Replica via Gossip Protocol
-        C2-->>Calc: ACK Quórum confirmado
-        Note over Calc: Ignora — aguarda próxima passagem
-    else Bounce detectado (tempo < 2.000 ms)
-        Note over Calc: WARN: Ignorado — leitura duplicada/ruído (stampede effect filtrado)
-    else DNF / Timeout (tempo > 30.000 ms)
-        Calc->>C1: INSERT historico_carro (reinicia marco zero) — QUORUM
-        C1-->>C2: Replica via Gossip Protocol
-        C2-->>Calc: ACK Quórum confirmado
-        Note over Calc: WARN: Volta reiniciada
-    else ✅ Volta válida (2.000 ms ≤ tempo ≤ 30.000 ms)
-        Calc->>C1: INSERT historico_carro (novo marco zero) — QUORUM
-        C1-->>C2: Replica via Gossip Protocol
-        C2-->>C3: Replica via Gossip Protocol
-        C2-->>Calc: ACK Quórum confirmado (2/3 nós)
-        Note over Calc,C3: Consenso distribuído garantido — dados duráveis
-
-        %% --- Evento 2: Volta válida calculada (processamento paralelo) ---
-        Calc-)Feed: 🔔 VoltaValidaCalculadaEvent(rfid, tempo_volta_ms)
-        Calc-)Podio: 🔔 VoltaValidaCalculadaEvent(rfid, tempo_volta_ms)
-        Note over Feed,Podio: Ambos consomem em paralelo (@Async)
-
-        %% --- FeedRecenteService ---
-        Feed->>C1: INSERT feed_recente (TTL: 60s) — QUORUM
-        C1-->>C2: Replica via Gossip Protocol
-        C2-->>Feed: ACK Quórum confirmado
-        Note over Feed,C2: agrupador="GERAL", timestamp_ms atual
-        Feed-)Notif: 🔔 PainelPrecisaAtualizarEvent
-
-        %% --- GerenciadorPodioService ---
-        Podio->>C1: SELECT podio_global ORDER BY tempo_volta_ms ASC — QUORUM
-        C1-->>C2: Replica read repair
-        C2-->>Podio: ACK Quórum — Lista dos top 10
-
-        alt Carro já está no pódio E novo tempo é melhor
-            Podio->>C1: DELETE entrada antiga + INSERT novo tempo — QUORUM
-            C1-->>C2: Replica via Gossip
-            C2-->>Podio: ACK Quórum confirmado
-        else Pódio tem menos de 10 entradas
-            Podio->>C1: INSERT podio_global — QUORUM
-            C1-->>C2: Replica via Gossip
-            C2-->>Podio: ACK Quórum confirmado
-        else Tempo bate o 10º lugar
-            Podio->>C1: DELETE 10º + INSERT novo — QUORUM
-            C1-->>C2: Replica via Gossip
-            C2-->>Podio: ACK Quórum confirmado
-        else Tempo não classifica
-            Note over Podio: Nenhuma alteração no pódio
-        end
-
-        Podio-)Notif: 🔔 PainelPrecisaAtualizarEvent
+    alt Primeira passagem (sem marco)
+        Note over Calc: registra marco zero, aguarda próxima passagem
+    else Bounce (duração < tempoMinimo)
+        Note over Calc: WARN — leitura duplicada/ruído ignorada
+    else DNF (duração > tempoMaximo)
+        Note over Calc: WARN — marco reiniciado
+    else ✅ Volta válida
+        Calc-)Reg: 🔔 VoltaValidaCalculadaEvent(sessaoId, rfid, duracao, ts)
+        Reg->>DB: INSERT volta (append-only) — W QUORUM
+        DB-->>Reg: ACK (2/3 nós)
+        Reg->>Cache: registrar(sessaoId, carro, duracao, ts)
+        Note over Cache: merge(min) no leaderboard + heap top-10 do feed
+        Note over Cache: rejeita se sessaoId ≠ sessão atual (evento stale)
+        Reg-)Notif: 🔔 PainelPrecisaAtualizarEvent
+        Note over Notif: executor de 1 thread → envios serializados (FIFO)
+        Notif->>Cache: snapshot() — O(1) leaderboard, O(10 log 10) feed
+        Notif-)Front: 📤 STOMP /topic/painel → PainelSaidaDTO
+        Front->>Front: Atualiza ranking e feed em tempo real
     end
-
-    %% --- Evento 3: Notificação WebSocket ---
-    Note over Notif: Escuta PainelPrecisaAtualizarEvent (@Async)
-    Notif->>C1: SELECT podio_global + feed_recente — QUORUM
-    C1-->>C2: Replica read repair
-    C2-->>Notif: ACK Quórum — Dados atualizados
-
-    Notif-)Front: 📤 STOMP /topic/painel → PainelSaidaDTO
-    Note over Notif,Front: {podio: [...], recentes: [...]}
-    Front->>Front: Atualiza ranking e feed em tempo real
-
-    %% --- Ramificação: Data Science (Pull/Batch) ---
-    Note over DS,Analytics: Fluxo assíncrono independente — batch analytics
-    DS->>Analytics: GET /api/analytics/voltas (HTTP)
-    Analytics->>C1: SELECT feed_recente ALLOW FILTERING (batch completo)
-    C1-->>C2: Replica read repair (time-series scan)
-    C2-->>Analytics: Retorna histórico completo de voltas
-    Analytics-->>DS: 200 OK — JSON array [{carro_id, tempo_volta_ms, timestamp_ms}]
-    Note over DS: Pandas: limpeza · SciPy: estatísticas
-    Note over DS: Scikit-Learn: K-Means clustering + detecção de outliers
-    DS->>DS: Renderiza gráficos interativos (Streamlit)
 ```
+
+---
+
+## 🛡️ Concorrência: como evitamos race conditions
+
+Esta é a essência da refatoração. Cada problema clássico de concorrência tem uma solução específica e justificada.
+
+### 1. Cálculo da volta — *check-then-act* atômico
+Calcular uma volta exige saber a última passagem do carro: *ler → calcular → gravar*. Feito no banco, isso é um *read-modify-write* não-atômico em rede, e duas leituras do mesmo carro em threads diferentes podiam computar voltas duplicadas.
+
+**Solução** — `CalculadoraDeVoltaService` mantém o "marco zero" de cada carro num `ConcurrentHashMap` e usa `marcoZero.compute(rfid, ...)`. O `compute()` é **atômico por chave**: ler o marco anterior, calcular a duração, decidir (1ª passagem / bounce / DNF / válida) e gravar o novo marco acontecem de forma indivisível para um mesmo `rfid`. Carros diferentes seguem em paralelo. A fonte da verdade do "última passagem" saiu do banco (lento, em rede) para a memória local (rápida, atômica).
+
+### 2. Sem estado mutável compartilhado — *lost update* eliminado
+A `Volta` é **append-only** e tem **um único escritor** (`RegistradorVoltaService`), que só faz `INSERT` de linhas imutáveis. *Inserts nunca conflitam*; não existe linha compartilhada para sofrer *lost update*. Pódio e feed deixaram de ser dados gravados e passaram a ser derivados.
+
+### 3. Derivação O(1) em memória — fim da *read amplification*
+O `PainelStateCache` mantém o leaderboard (`ConcurrentHashMap<carroId, melhorTempo>` via `merge(min)`) e um feed limitado (top-10 mais recentes numa `PriorityQueue`). O snapshot do painel não toca o banco: O(1) para o leaderboard e O(10·log 10) para o feed. O Cassandra continua sendo o log durável para replay/restart.
+
+### 4. Ordem dos envios WebSocket — executor de 1 thread
+Notificações fora de ordem fariam o painel "andar para trás". O `NotificadorWebSocket` roda num executor dedicado de **uma única thread** (`notifierExecutor`), serializando os `convertAndSend` em FIFO. O processamento das voltas usa um pool de 4–8 threads (throughput); a saída usa 1 thread (ordem). Dois pools, dois objetivos.
+
+### 5. Eventos de sessão "velha" — defesa em três camadas
+Ao iniciar uma nova corrida, eventos em voo da anterior não podem contaminar o painel novo:
+1. todo evento carrega o `sessaoId`;
+2. `SessaoIniciadaEvent` é ouvido **de forma síncrona** e purga o `marcoZero` e o `PainelStateCache`;
+3. `PainelStateCache.registrar()` **rejeita** voltas cujo `sessaoId` não bate com o atual, e o `compute()` trata sessão diferente como "sem passagem anterior".
+
+### 6. Estado de sessão atômico e composto
+`SessaoAtualHolder` guarda `EstadoSessao(sessaoId, pistaId, nomePista, tempoMinimo, tempoMaximo)` num único `AtomicReference`. A calculadora lê tudo num único `get` atômico — é impossível pegar o `sessaoId` novo com os limiares antigos durante uma troca de pista.
 
 ---
 
 ## 🧠 Decisões Arquiteturais
 
-### 📟 Dispositivos de Borda (Edge Computing)
-Microcontroladores **ESP32** são responsáveis pela leitura das tags RFID diretamente na pista. Ao detectar um carrinho, o ESP32 publica imediatamente um payload JSON no broker MQTT com o identificador da tag (`rfid`) e o timestamp preciso em milissegundos (`timestamp_ms`). Isso mantém a lógica de negócio inteiramente no backend, deixando o hardware leve e intercambiável.
+### 📟 Dispositivos de Borda (Edge)
+Microcontroladores **ESP32** leem as tags RFID na pista e publicam um JSON `{rfid, timestamp_ms}` no broker MQTT. Toda a lógica de negócio fica no backend; o hardware é leve e intercambiável.
 
 ### ☁️ Mensageria com MQTT (HiveMQ Cloud)
-O protocolo **MQTT** foi escolhido por ser extremamente leve e confiável para dispositivos IoT com conectividade instável. O broker **HiveMQ Cloud** atua como intermediário: mesmo que a API esteja temporariamente indisponível, as mensagens não são perdidas. Essa camada desacopla completamente o hardware da lógica de negócio.
+O **MQTT** é leve e confiável para IoT com conectividade instável. O broker **HiveMQ Cloud** desacopla o hardware da lógica de negócio.
 
 | Atributo | Valor |
 |---|---|
@@ -238,119 +223,79 @@ O protocolo **MQTT** foi escolhido por ser extremamente leve e confiável para d
 | QoS | 0 (at-most-once) |
 
 ### ⚙️ Processamento Assíncrono (Spring Boot)
-O backend consome os eventos MQTT de forma **totalmente assíncrona**, usando o sistema de eventos do Spring (`ApplicationEventPublisher`). Cada mensagem recebida dispara um `CarroPassouNoSensorEvent`, que é processado em thread separada pelo `CalculadoraDeVoltaService`. Isso garante que a thread do receiver MQTT nunca fique bloqueada, maximizando o throughput.
+A thread do receiver MQTT apenas publica um `CarroPassouNoSensorEvent` e retorna — nunca bloqueia. Os handlers `@EventListener @Async` processam em pools dedicados (`AsyncConfig`), maximizando o throughput.
 
-### 🗄️ Banco de Dados Time-Series em Cluster (Apache Cassandra)
-A escolha do **Apache Cassandra** não foi acidental. O sistema opera sobre um **cluster ring de 3 nós** com replicação configurada via `NetworkTopologyStrategy` no datacenter `dc1`, garantindo que cada escrita seja replicada em todos os nós do anel. O modelo de dados foi desenhado especificamente para o padrão de acesso desta aplicação — altíssima taxa de escrita e leituras ordenadas por tempo (time-series):
+### 🗄️ Banco de Dados Time-Series (Apache Cassandra)
+O Cassandra é otimizado para escrita (append-only log) — ideal para séries temporais de alto volume. O modelo de dados foi desenhado para o padrão de acesso da aplicação:
 
 | Tabela | Partition Key | Clustering Key | Finalidade |
 |---|---|---|---|
-| `feed_recente` | `agrupador` | `timestamp_ms DESC` | Últimas voltas de todas as corridas (TTL 60s) |
-| `historico_carro` | `carro_id` | `timestamp_ms DESC` | Histórico completo por carrinho |
-| `podio_global` | `agrupador` | `tempo_volta_ms ASC` | Ranking ordenado automaticamente |
+| `volta` | `sessao_id` | `carro_id ASC, ts DESC` | Log imutável de voltas por sessão |
+| `pista` | `id` | — | Configuração de pistas (limiares de tempo) |
 
-**Consistência `QUORUM`:** Todas as operações críticas de leitura e escrita utilizam nível de consistência `QUORUM`, o que significa que ao menos **2 dos 3 nós** precisam confirmar a operação antes que ela seja considerada bem-sucedida. Isso garante:
+**Consistência `QUORUM`:** todas as operações usam `QUORUM` — ao menos **2 dos 3 nós** confirmam antes do sucesso. Isso garante tolerância à falha de 1 nó (⌊N/2⌋+1 = 2 num cluster de 3) e integridade dos dados.
 
-> **Alta disponibilidade:** O cluster continua operando mesmo com a falha de 1 nó (tolerância a falhas: ⌊N/2⌋ + 1 = 2 nós necessários para quórum em um cluster de N=3).
-> **Integridade dos dados:** Nenhuma volta é registrada sem o consenso distribuído da maioria do cluster, eliminando leituras sujas e inconsistências de replicação.
-> **Escalabilidade horizontal:** Novos nós podem ser adicionados ao cluster ring sem downtime, aumentando o throughput proporcional à capacidade.
-
-O Cassandra é otimizado para gravações (append-only log), o que o torna ideal para séries temporais de alta volumetria IoT. A ordenação da clustering key elimina qualquer necessidade de ordenar os resultados em memória.
-
-### 💻 Comunicação em Tempo Real (WebSockets)
-Após processar e persistir uma volta válida, a API notifica o Front-End instantaneamente via **WebSockets** (STOMP sobre SockJS). O cliente Front-End se inscreve no destino `/topic/painel` e recebe um `PainelSaidaDTO` completo a cada atualização, sem precisar fazer polling.
+### 💻 Tempo Real (WebSockets)
+Após persistir e registrar uma volta válida, a API empurra um `PainelSaidaDTO` via **STOMP sobre SockJS** para o destino `/topic/painel`. O cliente assina e recebe atualizações sem polling. Endpoint: `/ws-time-trial`.
 
 ---
 
 ## 📊 Telemetria e Observabilidade
 
-A plataforma implementa uma stack completa de observabilidade com três camadas distintas, seguindo o padrão *"instrumentação → coleta → visualização"*:
+Stack completa no padrão *"instrumentação → coleta → visualização"*:
 
 ### Instrumentação — Spring Boot Actuator
-A aplicação expõe automaticamente métricas de JVM, pool de threads, conectividade com Cassandra e métricas customizadas de negócio (taxa de ingestão de voltas por segundo) através do endpoint `/actuator/prometheus` em formato **OpenMetrics**.
+Métricas de JVM, pools de threads, conectividade com Cassandra e métricas de negócio expostas em `/actuator/prometheus` (formato OpenMetrics).
 
 | Endpoint | Finalidade |
 |---|---|
-| `/actuator/health` | Status de saúde da aplicação e dependências |
-| `/actuator/prometheus` | Métricas em formato Prometheus (scrape target) |
-| `/actuator/metrics` | Catálogo de métricas disponíveis |
+| `/actuator/health` | Status de saúde |
+| `/actuator/prometheus` | Métricas (scrape target) |
+| `/actuator/info` | Metadados da aplicação |
 
 ### Coleta — Prometheus
-O **Prometheus** realiza scraping das métricas a cada **5 segundos** (configurado em `prometheus.yml`), armazenando séries temporais comprimidas localmente. Ele monitora tanto a API Spring Boot quanto o próprio processo interno, permitindo alertas e queries em **PromQL**.
-
-```yaml
-# prometheus.yml
-scrape_configs:
-  - job_name: 'time-trial-api'
-    metrics_path: '/actuator/prometheus'
-    static_configs:
-      - targets: ['time-trial-api:8080']
-```
+Scraping a cada **5 segundos** (`prometheus.yml`), com séries temporais comprimidas localmente (retenção 15 dias).
 
 ### Visualização — Grafana
-O **Grafana** (porta `3000`) consome o Prometheus como datasource e exibe dashboards em tempo real. O dashboard principal `taxa_ingestao_telemetria` apresenta a **taxa de ingestão do Cassandra por segundo**, permitindo identificar gargalos de throughput, picos de carga e comportamentos anômalos na pipeline de eventos IoT.
+**Grafana** (porta `3000`) consome o Prometheus e provisiona dashboards automaticamente (`grafana/provisioning`): API HTTP, persistência Cassandra, JVM runtime e taxa de ingestão de telemetria.
 
-> 💡 Acesse o Grafana em `http://localhost:3000` (credenciais padrão: `admin` / `admin`, configurável via `GRAFANA_ADMIN_PASSWORD` no `.env`).
-
----
-
-## 🔬 Analytics & Data Science
-
-A arquitetura implementa um modelo de **saída bimodal de dados**, separando o fluxo de tempo real do fluxo analítico:
-
-### Modo 1 — Tempo Real (Push via WebSocket)
-Descrito na seção anterior: o `NotificadorWebSocket` envia atualizações instantâneas via STOMP para o Front-End React/Vue após cada volta válida processada.
-
-### Modo 2 — Batch/Analytics (Pull via REST)
-Um `AnalyticsController` RESTful expõe o endpoint `GET /api/analytics/voltas`, que retorna o **histórico completo de voltas** em formato JSON sem paginação (full scan). Este endpoint foi desenhado especificamente para ser consumido pelo módulo de Data Science em Python.
-
-| Atributo | Valor |
-|---|---|
-| Endpoint | `GET /api/analytics/voltas` |
-| Resposta | `application/json` — array de objetos `{carro_id, tempo_volta_ms, timestamp_ms}` |
-| Frequência | Sob demanda (pull) — não há streaming |
-| Destino | Dashboard Streamlit (Python) |
-
-### Stack de Data Science (Python)
-
-O dashboard analítico é construído com o ecossistema Python científico:
-
-| Biblioteca | Função |
-|---|---|
-| **Streamlit** | Framework de dashboard interativo (UI) |
-| **Pandas** | Ingestão, limpeza e transformação do JSON via `pd.read_json` / `requests` |
-| **SciPy** | Estatísticas descritivas e testes de hipótese sobre os tempos de volta |
-| **Scikit-Learn** | Algoritmo K-Means para **clustering de pilotos** por padrão de desempenho e **detecção de outliers** (voltas anômalas/suspeitas) |
-
-> **Exemplo de insight:** O K-Means agrupa os carrinhos em *clusters* de performance (elite, intermediário, iniciante) com base nos percentis de tempo de volta. O detector de outliers identifica leituras que fogem do padrão esperado — possíveis falhas de sensor ou *bounces* não filtrados.
+> 💡 `http://localhost:3000` — usuário `admin`, senha via `GRAFANA_ADMIN_PASSWORD` no `.env` (padrão `admin`).
 
 ---
 
-## 🚀 Como Executar (Deploy Portátil)
+## 🔌 Endpoints da API
 
-O projeto utiliza **Docker Compose** com orquestração em cascata: os nós do cluster Cassandra sobem sequencialmente, aguardando o status `UN` (**Up and Normal**) de cada nó via **Gossip Protocol** antes de avançar para o próximo. Somente após o cluster estar 100% sincronizado (verificado via `SELECT rack FROM system.peers`), o container de inicialização cria o keyspace e as tabelas. Em seguida, Prometheus, Grafana e a API Spring Boot são iniciados. Basta configurar o arquivo `.env`.
+| Método | Rota | Descrição |
+|---|---|---|
+| `POST` | `/api/pistas` | Cria uma pista (`nome`, `tempoMinimoMs`, `tempoMaximoMs`) |
+| `GET` | `/api/pistas` | Lista as pistas cadastradas |
+| `POST` | `/api/sessoes/iniciar` | Inicia/reseta a sessão; opcionalmente vinculada a uma `pistaId` |
+| `WS` | `/ws-time-trial` → `/topic/painel` | Stream do painel em tempo real (STOMP/SockJS) |
+
+---
+
+## 🚀 Como Executar (Local — Docker Compose)
+
+O projeto usa **Docker Compose** com orquestração em cascata: os nós do cluster Cassandra sobem sequencialmente (healthcheck via `cqlsh`); só após o cluster sincronizar (verificado via `SELECT rack FROM system.peers`), o `cassandra-init` cria o keyspace e as tabelas `volta` e `pista`. Em seguida sobem Prometheus, Grafana e a API.
 
 ### Sequência de Inicialização
 
 ```
 cassandra-1 (Seed) → [healthcheck: cqlsh]
-    └─► cassandra-2 (joins ring via Gossip) → [healthcheck: cqlsh]
+    └─► cassandra-2 (joins ring via Gossip) → [healthcheck]
             └─► cassandra-3 (joins ring via Gossip)
-cassandra-init → [aguarda 2 peers via CQL (os outros 2 nós além do seed, conforme system.peers)]
+cassandra-init → [aguarda 2 peers via CQL]
     └─► CREATE KEYSPACE (NetworkTopologyStrategy, dc1:3)
-    └─► CREATE TABLEs (feed_recente, historico_carro, podio_global)
-prometheus + grafana (iniciam em paralelo após cluster)
+    └─► CREATE TABLE volta, pista
+prometheus + grafana (em paralelo)
 time-trial-api → [conecta aos 3 contact-points]
 ```
 
 ### Pré-requisitos
+- [Docker](https://www.docker.com/get-started) e Docker Compose
+- Conta no [HiveMQ Cloud](https://www.hivemq.com/mqtt-cloud-broker/) (plano gratuito)
 
-- [Docker](https://www.docker.com/get-started) e Docker Compose instalados
-- Uma conta no [HiveMQ Cloud](https://www.hivemq.com/mqtt-cloud-broker/) (plano gratuito disponível)
-
-### 1. Configure o arquivo `.env`
-
-Crie um arquivo `.env` na raiz do projeto com suas credenciais do HiveMQ Cloud e, opcionalmente, a senha do Grafana:
+### 1. Configure o `.env`
 
 ```env
 USER_HIVEMQ=seu-usuario-hivemq
@@ -358,43 +303,36 @@ PASSWORD_HIVEMQ=sua-senha-hivemq
 GRAFANA_ADMIN_PASSWORD=admin
 ```
 
-> ⚠️ **Nunca faça commit do arquivo `.env` com credenciais reais.** O `.gitignore` já está configurado para ignorá-lo.
+> ⚠️ **Nunca faça commit do `.env`.** O `.gitignore` já o ignora.
 
-### 2. Suba todos os serviços
+### 2. Suba tudo
 
 ```bash
 docker compose up --build
 ```
 
-O Docker Compose irá:
-1. Subir `cassandra-node-1` (seed do cluster ring) e aguardar o healthcheck
-2. Subir `cassandra-node-2`, que ingressa no ring via Gossip Protocol, e aguardar o healthcheck
-3. Subir `cassandra-node-3`, que completa o cluster de 3 nós
-4. Executar `cassandra-init`: aguardar status `UN` dos 3 nós e criar o keyspace `time_trial` com `NetworkTopologyStrategy` e as tabelas com consistência QUORUM
-5. Subir **Prometheus** (`:9090`) e **Grafana** (`:3000`) em paralelo
-6. Construir e iniciar a **API Spring Boot**, conectada aos 3 contact-points do cluster
-
 ### 3. Endpoints Disponíveis
 
-| Serviço | URL | Descrição |
-|---|---|---|
-| **API REST** | `http://localhost:8080` | API principal |
-| **WebSocket** | `http://localhost:8080/ws-time-trial` | Endpoint SockJS/STOMP |
-| **Analytics** | `http://localhost:8080/api/analytics/voltas` | Histórico batch para Data Science |
-| **Prometheus** | `http://localhost:9090` | Console de métricas e PromQL |
-| **Grafana** | `http://localhost:3000` | Dashboard de observabilidade |
+| Serviço | URL |
+|---|---|
+| **API REST** | `http://localhost:8080` |
+| **WebSocket** | `http://localhost:8080/ws-time-trial` |
+| **Prometheus** | `http://localhost:9090` |
+| **Grafana** | `http://localhost:3000` |
 
-### 4. WebSocket
+> O endpoint WebSocket usa **SockJS**: clientes devem usar prefixo `http://` (não `ws://`). Assine `/topic/painel` para receber o ranking.
 
-Conecte seu Front-End ao endpoint WebSocket (SockJS + STOMP):
+---
 
-```
-http://localhost:8080/ws-time-trial
-```
+## ☁️ Deploy na AWS (ECS + Amazon Keyspaces)
 
-> O endpoint usa **SockJS**, que negocia a conexão via HTTP antes de fazer o upgrade. Clientes SockJS devem usar o prefixo `http://` (não `ws://`).
+A aplicação roda também em produção na AWS, sem Cassandra auto-gerenciado:
 
-Inscreva-se no destino `/topic/painel` para receber atualizações de ranking em tempo real.
+- **Amazon Keyspaces** (Cassandra gerenciado) — ativado via `AWS_KEYSPACES_ENABLED=true`, com autenticação **SigV4** (`aws-sigv4-auth-cassandra-java-driver-plugin`). Schema em [`aws/keyspaces-schema.cql`](aws/keyspaces-schema.cql).
+- **Amazon ECS** — container definido em [`aws/task-definition.json`](aws/task-definition.json), imagem publicada no **ECR**.
+- **CI/CD** — workflow [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) faz build e deploy a cada push na `main`, autenticando via **OIDC** (sem chaves hardcoded).
+
+Runbooks detalhados: [`aws/DEPLOY-RUNBOOK.md`](aws/DEPLOY-RUNBOOK.md) e [`aws/EC2-DEPLOY-RUNBOOK.md`](aws/EC2-DEPLOY-RUNBOOK.md).
 
 ---
 
@@ -402,19 +340,30 @@ Inscreva-se no destino `/topic/painel` para receber atualizações de ranking em
 
 ```
 src/main/java/com/centroweg/iot/time_trial_api/
-├── config/              # Configurações (Cassandra, MQTT, WebSocket, Async)
-├── core/
-│   ├── domain/          # Entidades do Cassandra (FeedRecente, HistoricoCarro, PodioGlobal)
-│   ├── event/           # Eventos de domínio (CarroPassouNoSensorEvent, VoltaValidaCalculadaEvent...)
-│   ├── repository/      # Interfaces de repositório Spring Data Cassandra
-│   └── service/         # Lógica de negócio (CalculadoraDeVolta, FeedRecente, GerenciadorPodio)
+├── config/              # Cassandra, MQTT, WebSocket, Async
+├── core/                # Módulo central (Spring Modulith)
+│   ├── api/             # Interface pública: PainelSaidaDTO, LeaderboardEntryDTO, VoltaFeedDTO
+│   ├── domain/          # Entidades: Pista, Volta
+│   ├── event/           # Eventos: CarroPassouNoSensor, VoltaValidaCalculada, PainelPrecisaAtualizar, SessaoIniciada
+│   ├── exception/       # Exceções de domínio
+│   ├── repository/      # PistaRepository, VoltaRepository (Spring Data Cassandra)
+│   └── service/         # CalculadoraDeVolta, RegistradorVolta, PainelStateCache,
+│                        #   PainelService, PistaService, SessaoAtualHolder
 ├── inbound/
-│   ├── dto/             # SensorPayloadDTO (entrada via MQTT)
-│   └── mqtt/            # MqttReceiver — consome mensagens do broker
+│   ├── dto/             # SensorPayloadDTO (entrada MQTT)
+│   └── mqtt/            # MqttReceiver
 └── outbound/
-    ├── dto/             # PainelSaidaDTO (saída via WebSocket)
-    └── websocket/       # NotificadorWebSocket — envia updates ao Front-End
+    ├── web/             # PistaController, SessaoController, GlobalExceptionHandler, DTOs
+    └── websocket/       # NotificadorWebSocket
 ```
+
+---
+
+## 🗺️ Roadmap — Evolução
+
+- **Múltiplas pistas simultâneas.** Hoje o runtime é single-session (uma corrida ativa por vez). O modelo de dados já suporta várias sessões coexistindo; falta (a) dar **identidade de pista à ingestão** — o payload MQTT precisa indicar de qual pista veio — e (b) indexar os singletons em memória por pista (`Map<pistaId, ...>` em `SessaoAtualHolder`, `PainelStateCache` e na chave do `marcoZero`), além de WebSocket por pista (`/topic/painel/{pistaId}`).
+- **Analytics em batch.** O log `volta` (append-only, durável) é a base natural para um endpoint REST de leitura em lote alimentando um módulo de Data Science (clustering de pilotos, detecção de outliers).
+- **Replay/restart.** Reconstruir o `PainelStateCache` a partir do log `volta` ao subir a aplicação.
 
 ---
 
@@ -423,19 +372,19 @@ src/main/java/com/centroweg/iot/time_trial_api/
 | Tecnologia | Versão | Função |
 |---|---|---|
 | Java | 21 | Linguagem principal |
-| Spring Boot | 3.x | Framework da API |
+| Spring Boot | 3.5.x | Framework da API |
+| Spring Modulith | 1.3.x | Modularidade verificada em testes |
 | Spring Data Cassandra | — | Abstração do banco de dados |
 | Spring WebSocket (STOMP) | — | Comunicação em tempo real |
-| Spring Boot Actuator | — | Exposição de métricas e health checks |
-| Eclipse Paho MQTT | — | Cliente MQTT |
+| Spring Boot Actuator | — | Métricas e health checks |
+| Eclipse Paho MQTT | 1.2.5 | Cliente MQTT |
 | HiveMQ Cloud | — | Broker MQTT gerenciado |
-| Apache Cassandra | latest | Banco de dados time-series (cluster 3 nós, QUORUM) |
-| Prometheus | latest | Coleta e armazenamento de métricas (scrape 5s) |
-| Grafana | latest | Visualização de métricas e dashboards de observabilidade |
-| Python | 3.x | Linguagem do módulo de Data Science |
-| Streamlit | — | Dashboard interativo de análise |
-| Pandas | — | Manipulação e transformação de dados |
-| SciPy | — | Análise estatística dos tempos de volta |
-| Scikit-Learn | — | K-Means clustering e detecção de outliers |
-| Docker / Docker Compose | — | Containerização e orquestração em cascata |
+| Apache Cassandra | latest | Banco time-series (cluster 3 nós, QUORUM) |
+| Amazon Keyspaces | — | Cassandra gerenciado (produção, SigV4) |
+| Prometheus | latest | Coleta de métricas (scrape 5s) |
+| Grafana | latest | Visualização e dashboards |
+| Docker / Docker Compose | — | Containerização e orquestração |
+| AWS ECS / ECR | — | Execução e registry em produção |
 | Lombok | — | Redução de boilerplate |
+</content>
+</invoke>
