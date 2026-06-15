@@ -3,13 +3,19 @@ spring:
     name: Time Trial API
 
   cassandra:
-    contact-points: 127.0.0.1
-    port: 9042
-    local-datacenter: dc1
-    keyspace-name: time_trial
+    contact-points: ${SPRING_CASSANDRA_CONTACT_POINTS:127.0.0.1}
+    port: ${SPRING_CASSANDRA_PORT:9042}
+    local-datacenter: ${SPRING_CASSANDRA_LOCAL_DATACENTER:dc1}
+    keyspace-name: ${SPRING_CASSANDRA_KEYSPACE_NAME:time_trial}
     schema-action: none
     request:
-      consistency: QUORUM
+      consistency: ${SPRING_CASSANDRA_REQUEST_CONSISTENCY:QUORUM}
+
+# Modo Amazon Keyspaces (AWS). Em dev local, mantenha false.
+# Na Task Definition do ECS, injete: AWS_KEYSPACES_ENABLED=true
+aws:
+  keyspaces:
+    enabled: ${AWS_KEYSPACES_ENABLED:false}
 
 time-trial:
   secret-keys:
@@ -28,11 +34,18 @@ management:
   endpoints:
     web:
       exposure:
-        include: "*"
+        include: "health, info, prometheus"
   endpoint:
     health:
       show-details: never
   metrics:
+    tags:
+      application: ${spring.application.name}
     enable:
       logback: true
       all: true
+    distribution:
+      percentiles-histogram:
+        http:
+          server:
+            requests: true

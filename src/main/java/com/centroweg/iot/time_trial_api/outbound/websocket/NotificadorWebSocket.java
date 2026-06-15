@@ -1,9 +1,8 @@
 package com.centroweg.iot.time_trial_api.outbound.websocket;
 
+import com.centroweg.iot.time_trial_api.core.api.PainelSaidaDTO;
 import com.centroweg.iot.time_trial_api.core.event.PainelPrecisaAtualizarEvent;
-import com.centroweg.iot.time_trial_api.core.repository.JpaFeedRecenteRepository;
-import com.centroweg.iot.time_trial_api.core.repository.JpaPodioGlobalRepository;
-import com.centroweg.iot.time_trial_api.outbound.dto.PainelSaidaDTO;
+import com.centroweg.iot.time_trial_api.core.service.PainelService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.event.EventListener;
@@ -17,21 +16,14 @@ import org.springframework.stereotype.Component;
 public class NotificadorWebSocket {
 
     private final SimpMessagingTemplate messagingTemplate;
-    private final JpaPodioGlobalRepository podioRepository;
-    private final JpaFeedRecenteRepository feedRepository;
+    private final PainelService painelService;
 
-    @Async
+    @Async("notifierExecutor")
     @EventListener
     public void onPainelPrecisaAtualizar(PainelPrecisaAtualizarEvent event) {
-        log.info("Preparando atualização de painel via WebSocket...");
-
-        var top10 = podioRepository.buscarTop10();
-        var ultimasVoltas = feedRepository.buscarUltimas10();
-
-        PainelSaidaDTO payload = new PainelSaidaDTO(top10, ultimasVoltas);
-
+        PainelSaidaDTO payload = painelService.derivar();
         messagingTemplate.convertAndSend("/topic/painel", payload);
-
-        log.info("Painel enviado com sucesso!");
+        log.info("Painel enviado — sessão {} pista '{}' leaderboard {} entradas, feed {} entradas",
+                payload.sessaoId(), payload.nomePista(), payload.leaderboard().size(), payload.recentes().size());
     }
 }
