@@ -1,0 +1,76 @@
+name: Deploy to AWS ECS
+
+on:
+  push:
+    branches:
+      - main
+
+env:
+  AWS_REGION: us-east-1                         # Altere para sua região
+  ECR_REPOSITORY: time-trial-api                # Nome do repositório no ECR
+  ECS_CLUSTER: time-trial-cluster               # Nome do cluster ECS
+  ECS_SERVICE: time-trial-service               # Nome do service ECS
+
+jobs:
+  deploy:
+    name: Build & Deploy
+    runs-on: ubuntu-latest
+    # Permissões para autenticação OIDC com a AWS (sem chaves de acesso hardcoded)
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Checkout do código
+        uses: actions/checkout@v4
+
+      # Cache das dependências Maven para builds mais rápidos
+      - name: Cache Maven
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository
+          key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            ${{ runner.os }}-maven-
+
+      - name: Configurar Java 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Build do JAR (sem testes)
+        run: ./mvnw clean package -DskipTests
+
+      # Autentica na AWS via OIDC — sem AWS_ACCESS_KEY_ID/SECRET no repositório
+      - name: Autenticar na AWS (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login no Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build, tag e push da imagem Docker para o ECR
+        id: build-image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          # Tag 'latest' para facilitar identificação
+          docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:latest
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+      - name: Deploy no ECS (força novo deployment)
+        run: |
+          aws ecs update-service \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --service ${{ env.ECS_SERVICE }} \
+            --force-new-deployment \
+            --region ${{ env.AWS_REGION }}
+          echo "✅ Deploy acionado — ECS irá substituir os containers gradualmente."

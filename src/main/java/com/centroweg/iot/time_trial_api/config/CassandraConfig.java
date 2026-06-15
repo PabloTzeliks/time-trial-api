@@ -24,6 +24,14 @@ public class CassandraConfig extends AbstractCassandraConfiguration {
     @Value("${spring.cassandra.request.consistency:QUORUM}")
     private String consistencyLevel;
 
+    /**
+     * Quando true, habilita autenticação SigV4 (IAM) e TLS para o Amazon Keyspaces.
+     * Em desenvolvimento local com Docker, mantenha como false (padrão).
+     * Na AWS, injete AWS_KEYSPACES_ENABLED=true via Task Definition / variável de ambiente.
+     */
+    @Value("${aws.keyspaces.enabled:false}")
+    private boolean keyspacesEnabled;
+
     @Override
     protected String getKeyspaceName() {
         return keyspaceName;
@@ -51,6 +59,18 @@ public class CassandraConfig extends AbstractCassandraConfiguration {
 
     @Override
     protected DriverConfigLoaderBuilderConfigurer getDriverConfigLoaderBuilderConfigurer() {
-        return builder -> builder.withString(DefaultDriverOption.REQUEST_CONSISTENCY, consistencyLevel);
+        return builder -> {
+            builder.withString(DefaultDriverOption.REQUEST_CONSISTENCY, consistencyLevel);
+
+            if (keyspacesEnabled) {
+                // Amazon Keyspaces: autenticação via AWS SigV4 (IAM) + TLS obrigatório
+                builder
+                    .withString(DefaultDriverOption.AUTH_PROVIDER_CLASS,
+                        "software.aws.mcs.auth.SigV4AuthProvider")
+                    .withString(DefaultDriverOption.SSL_ENGINE_FACTORY_CLASS,
+                        "DefaultSslEngineFactory")
+                    .withBoolean(DefaultDriverOption.SSL_HOSTNAME_VALIDATION, false);
+            }
+        };
     }
 }

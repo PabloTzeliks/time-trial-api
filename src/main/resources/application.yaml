@@ -9,7 +9,13 @@ spring:
     keyspace-name: ${SPRING_CASSANDRA_KEYSPACE_NAME:time_trial}
     schema-action: none
     request:
-      consistency: QUORUM
+      consistency: ${SPRING_CASSANDRA_REQUEST_CONSISTENCY:QUORUM}
+
+# Modo Amazon Keyspaces (AWS). Em dev local, mantenha false.
+# Na Task Definition do ECS, injete: AWS_KEYSPACES_ENABLED=true
+aws:
+  keyspaces:
+    enabled: ${AWS_KEYSPACES_ENABLED:false}
 
 time-trial:
   secret-keys:

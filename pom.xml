@@ -90,6 +90,13 @@
 			<groupId>io.micrometer</groupId>
 			<artifactId>micrometer-registry-prometheus</artifactId>
 		</dependency>
+
+		<!-- AWS SigV4 auth for Amazon Keyspaces -->
+		<dependency>
+			<groupId>software.aws.mcs</groupId>
+			<artifactId>aws-sigv4-auth-cassandra-java-driver-plugin</artifactId>
+			<version>4.0.9</version>
+		</dependency>
 	</dependencies>
 
 	<build>
